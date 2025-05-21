@@ -56,7 +56,7 @@ class Users(Model):
         user_data = {
             "username": username,
             "email": email,
-            "password": password,
+            "password": password,  # У реальному додатку використовуйте хешування
             "created_at": datetime.now(),
             "updated_at": datetime.now()
         }

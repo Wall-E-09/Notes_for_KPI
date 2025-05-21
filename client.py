@@ -2,8 +2,9 @@ import asyncio
 import websockets
 import json
 import uuid
-from config import Config
+from datetime import datetime
 from bson import json_util
+from config import Config
 
 class NoteClient:
     def __init__(self):
@@ -11,39 +12,124 @@ class NoteClient:
         self.current_user = None
         self.client_id = str(uuid.uuid4())
         self.uri = f"ws://{Config.WEBSOCKET_HOST}:{Config.WEBSOCKET_PORT}"
-    
-    async def connect(self):
+        self._active = True
+        self._connection_task = None
+        self._connection_lock = asyncio.Lock()
+
+    async def _connect(self):
+        async with self._connection_lock:
+            try:
+                print(f"Connecting to {self.uri}...")
+                self.websocket = await websockets.connect(
+                    self.uri,
+                    ping_interval=None,
+                    ping_timeout=None,
+                    close_timeout=1
+                )
+                
+                init_data = {
+                    "client_id": self.client_id,
+                    "action": "init"
+                }
+                if self.current_user:
+                    init_data["action"] = "restore_session"
+                    init_data["user_id"] = self.current_user["id"]
+                
+                await self.websocket.send(json.dumps(init_data))
+                response = json_util.loads(await self.websocket.recv())
+                
+                if response.get("status") != "connected":
+                    raise ConnectionError("Connection not acknowledged")
+                
+                print("Connection established successfully")
+                return True
+                
+            except Exception as e:
+                print(f"Connection failed: {str(e)}")
+                if self.websocket:
+                    await self.websocket.close()
+                    self.websocket = None
+                return False
+
+    def _is_connected(self):
+        # Найнадійніший спосіб перевірки з'єднання
         try:
-            self.websocket = await websockets.connect(self.uri)
-            # Відправляємо ініціалізаційне повідомлення
-            await self.websocket.send(json.dumps({
-                "action": "init",
-                "client_id": self.client_id
-            }))
-            return True
-        except Exception as e:
-            print(f"Connection error: {e}")
+            return self.websocket is not None and not self.websocket.closed
+        except:
             return False
-    
+
+    async def _connection_manager(self):
+        while self._active:
+            try:
+                if not self._is_connected():
+                    if not await self._connect():
+                        await asyncio.sleep(Config.RECONNECT_DELAY)
+                        continue
+                
+                await asyncio.sleep(Config.PING_INTERVAL)
+                if self._is_connected():
+                    try:
+                        # Відправляємо тестове повідомлення для перевірки з'єднання
+                        await self.websocket.ping()
+                    except:
+                        print("Connection check failed, reconnecting...")
+                        await self._connect()
+
+            except Exception as e:
+                print(f"Connection manager error: {str(e)}")
+                await asyncio.sleep(1)
+
     async def send_request(self, action, data=None):
         if data is None:
             data = {}
-        
-        if not self.websocket:
-            if not await self.connect():
-                return {"status": "error", "message": "Failed to connect to server"}
-        
+
+        if not self._is_connected():
+            if not await self._connect():
+                return {"status": "error", "message": "Could not connect to server"}
+
         try:
-            request = {"action": action, **data}
+            request = {
+                "action": action,
+                "request_id": str(uuid.uuid4()),
+                **data
+            }
             await self.websocket.send(json.dumps(request))
             response = await self.websocket.recv()
-            # Використовуємо json_util для десеріалізації
             return json_util.loads(response)
+            
         except websockets.exceptions.ConnectionClosed:
-            return {"status": "error", "message": "Connection to server lost"}
+            print("Connection lost, reconnecting...")
+            if await self._connect():
+                return await self.send_request(action, data)
+            return {"status": "error", "message": "Connection lost"}
         except Exception as e:
+            print(f"Request failed: {str(e)}")
             return {"status": "error", "message": str(e)}
-    
+
+    async def start(self):
+        if not await self._connect():
+            return False
+        
+        self._connection_task = asyncio.create_task(self._connection_manager())
+        return True
+
+    async def stop(self):
+        self._active = False
+        if self._connection_task:
+            self._connection_task.cancel()
+            try:
+                await self._connection_task
+            except asyncio.CancelledError:
+                pass
+
+        if self.websocket is not None:
+            try:
+                await self.websocket.close()
+            except:
+                pass
+            finally:
+                self.websocket = None
+
     async def login(self, email, password):
         response = await self.send_request("login", {
             "email": email,
@@ -52,18 +138,18 @@ class NoteClient:
         if response["status"] == "success":
             self.current_user = response["user"]
         return response
-    
+
     async def register(self, username, email, password):
         return await self.send_request("register", {
             "username": username,
             "email": email,
             "password": password
         })
-    
+
     async def create_note(self, title, content, note_type="text", encrypt=False):
         if not self.current_user:
             return {"status": "error", "message": "You need to login first"}
-        
+
         return await self.send_request("create_note", {
             "user_id": self.current_user["id"],
             "title": title,
@@ -71,39 +157,39 @@ class NoteClient:
             "note_type": note_type,
             "encrypt": encrypt
         })
-    
+
     async def get_notes(self):
         if not self.current_user:
             return {"status": "error", "message": "You need to login first"}
-        
+
         return await self.send_request("get_notes", {
             "user_id": self.current_user["id"]
         })
-    
-    async def close(self):
-        if self.websocket:
-            await self.websocket.close()
 
 class ConsoleInterface:
     def __init__(self):
         self.client = NoteClient()
-    
+        self._running = False
+
     async def run(self):
-        connected = await self.client.connect()
-        if not connected:
-            print("Failed to connect to server. Please start the server first.")
+        if not await self.client.start():
+            print("\nFailed to connect to server. Please check:")
+            print(f"1. Сервер запущений на {Config.WEBSOCKET_HOST}:{Config.WEBSOCKET_PORT}")
+            print("2. Фаєрвол не блокує з'єднання")
+            print("3. MongoDB запущений (команда 'mongod')")
             return
-        
-        while True:
-            print("\n1. Login")
-            print("2. Register")
-            print("3. Create Note")
-            print("4. View Notes")
-            print("5. Exit")
-            
-            choice = input("Select an option: ")
-            
+
+        self._running = True
+        while self._running:
             try:
+                print("\n1. Login")
+                print("2. Register")
+                print("3. Create Note")
+                print("4. View Notes")
+                print("5. Exit")
+                
+                choice = input("Select an option: ").strip()
+                
                 if choice == "1":
                     await self.handle_login()
                 elif choice == "2":
@@ -113,26 +199,30 @@ class ConsoleInterface:
                 elif choice == "4":
                     await self.handle_view_notes()
                 elif choice == "5":
-                    await self.client.close()
-                    break
+                    self._running = False
                 else:
                     print("Invalid option")
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                self._running = False
             except Exception as e:
-                print(f"Error: {e}")
-    
+                print(f"Error: {str(e)}")
+        
+        await self.client.stop()
+
     async def handle_login(self):
         email = input("Email: ")
         password = input("Password: ")
         response = await self.client.login(email, password)
         print(response["message"])
-    
+
     async def handle_register(self):
         username = input("Username: ")
         email = input("Email: ")
         password = input("Password: ")
         response = await self.client.register(username, email, password)
         print(response["message"])
-    
+
     async def handle_create_note(self):
         if not self.client.current_user:
             print("You need to login first")
@@ -149,7 +239,7 @@ class ConsoleInterface:
         
         response = await self.client.create_note(title, content, note_type, encrypt)
         print(response["message"])
-    
+
     async def handle_view_notes(self):
         if not self.client.current_user:
             print("You need to login first")
@@ -181,4 +271,9 @@ class ConsoleInterface:
 
 if __name__ == "__main__":
     interface = ConsoleInterface()
-    asyncio.get_event_loop().run_until_complete(interface.run())
+    try:
+        asyncio.get_event_loop().run_until_complete(interface.run())
+    except KeyboardInterrupt:
+        print("\nApplication terminated")
+    except Exception as e:
+        print(f"Fatal error: {str(e)}")
