@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Notes App</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .note { 
+            border: 1px solid #ddd; 
+            padding: 15px; 
+            margin: 10px 0; 
+            border-radius: 8px;
+            background: #f9f9f9;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .note h3 { margin-top: 0; color: #333; }
+        .note-text { background: #e6f7ff; }
+        .note-image { background: #fff2e6; }
+        .note-voice { background: #f6e6ff; }
+        #notes-container { margin-top: 20px; }
+        #console { 
+            margin-top: 20px;
+            padding: 10px;
+            background: #333;
+            color: #0f0;
+            font-family: monospace;
+            height: 100px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>📝 Notes App</h1>
+    
+    <div>
+        <input type="text" id="username" placeholder="Your username" value="test_user">
+        <button onclick="connect()">Connect</button>
+    </div>
+    
+    <div id="app" style="display: none;">
+        <h2>Create New Note</h2>
+        <select id="note-type">
+            <option value="text">Text</option>
+            <option value="image">Image URL</option>
+            <option value="voice">Voice Message</option>
+        </select>
+        <input type="text" id="note-content" placeholder="Enter note content...">
+        <button onclick="createNote()">Create Note</button>
+        
+        <h2>Your Notes</h2>
+        <button onclick="loadNotes()">Refresh Notes</button>
+        <div id="notes-container"></div>
+        
+        <h2>System Console</h2>
+        <div id="console"></div>
+    </div>
+
+    <script>
+        let socket;
+        let currentUser = "";
+        const consoleOutput = document.getElementById('console');
+        
+        function logToConsole(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            consoleOutput.innerHTML += `[${timestamp}] ${message}<br>`;
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+        
+        function connect() {
+            currentUser = document.getElementById('username').value.trim();
+            if (!currentUser) {
+                alert("Please enter username");
+                return;
+            }
+            
+            logToConsole(`Connecting to server as ${currentUser}...`);
+            socket = new WebSocket('ws://localhost:8765');
+            
+            socket.onopen = () => {
+                logToConsole("Connection established!");
+                document.getElementById('app').style.display = 'block';
+                loadNotes();
+            };
+            
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                logToConsole(`Received: ${JSON.stringify(data).slice(0, 100)}...`);
+                
+                if (data.action === "notes_list") {
+                    displayNotes(data.notes);
+                }
+                else if (data.action === "note_created") {
+                    logToConsole(`Note created with ID: ${data.note_id}`);
+                    loadNotes();
+                }
+            };
+            
+            socket.onclose = () => {
+                logToConsole("Connection closed");
+            };
+            
+            socket.onerror = (error) => {
+                logToConsole(`Error: ${error.message}`);
+            };
+        }
+        
+        function createNote() {
+            const type = document.getElementById('note-type').value;
+            const content = document.getElementById('note-content').value.trim();
+            
+            if (!content) {
+                alert("Please enter note content");
+                return;
+            }
+            
+            const noteData = {
+                action: "create_note",
+                type: type,
+                content: content,
+                owner: currentUser
+            };
+            
+            logToConsole(`Sending: ${JSON.stringify(noteData)}`);
+            socket.send(JSON.stringify(noteData));
+            document.getElementById('note-content').value = "";
+        }
+        
+        function loadNotes() {
+            logToConsole("Requesting notes...");
+            socket.send(JSON.stringify({
+                action: "get_notes",
+                owner: currentUser
+            }));
+        }
+        
+        function displayNotes(notes) {
+            const container = document.getElementById('notes-container');
+            container.innerHTML = '';
+            
+            if (notes.length === 0) {
+                container.innerHTML = '<p>No notes found</p>';
+                return;
+            }
+            
+            notes.forEach(note => {
+                const noteElement = document.createElement('div');
+                noteElement.className = `note note-${note.type}`;
+                
+                let contentDisplay = note.content;
+                if (note.type === 'image') {
+                    contentDisplay = `<img src="${note.content}" alt="Image note" style="max-width: 100%;">`;
+                }
+                
+                noteElement.innerHTML = `
+                    <h3>${note.type.charAt(0).toUpperCase() + note.type.slice(1)} Note</h3>
+                    <div>${contentDisplay}</div>
+                    <small>Created: ${new Date(note.created_at).toLocaleString()}</small>
+                    <small style="display: block;">ID: ${note._id}</small>
+                `;
+                container.appendChild(noteElement);
+            });
+            
+            logToConsole(`Displayed ${notes.length} notes`);
+        }
+    </script>
+</body>
+</html>
