@@ -77,7 +77,7 @@ class Notes(Model):
         cls.get_collection().create_index([("title", ASCENDING)])
     
     @classmethod
-    def create_note(cls, user_id, title, content, note_type, is_encrypted=False):
+    def create_note(cls, user_id, title, content, note_type, is_encrypted=False, attachment=None):
         if note_type not in cls.NOTE_TYPES:
             raise ValueError(f"Invalid note type. Must be one of: {cls.NOTE_TYPES}")
         
@@ -88,7 +88,8 @@ class Notes(Model):
             "note_type": note_type,
             "time_creation": datetime.now(),
             "time_update": datetime.now(),
-            "is_encrypted": is_encrypted
+            "is_encrypted": is_encrypted,
+            "attachment": attachment
         }
         return cls.insert_one(note_data)
 

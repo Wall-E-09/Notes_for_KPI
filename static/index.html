@@ -442,6 +442,80 @@
             color: var(--dark-color);
         }
 
+        /* Voice recording styles */
+        .recording-controls {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+            align-items: center;
+        }
+
+        .record-btn, .stop-btn, .play-btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .record-btn {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+        .stop-btn {
+            background-color: var(--dark-color);
+            color: white;
+        }
+
+        .play-btn {
+            background-color: var(--success-color);
+            color: white;
+        }
+
+        .recording-status {
+            margin-left: 10px;
+            font-size: 14px;
+            color: var(--danger-color);
+        }
+
+        .recording-timer {
+            margin-left: 10px;
+            font-weight: bold;
+        }
+
+        .file-upload {
+            margin: 10px 0;
+        }
+
+        .file-preview {
+            max-width: 100%;
+            max-height: 200px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .audio-preview {
+            width: 100%;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .note-attachment {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .file-preview-container {
+            margin-top: 10px;
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 flex-direction: column;
@@ -580,7 +654,7 @@
                             <input type="radio" name="note-type" value="voice"> Voice
                         </label>
                         <label class="radio-option">
-                            <input type="radio" name="note-type" value="image"> Image
+                            <input type="radio" name="note-type" value="image"> File
                         </label>
                     </div>
                 </div>
@@ -589,6 +663,38 @@
                         <input type="checkbox" id="note-encrypt"> Encrypt note
                     </label>
                 </div>
+                
+                <!-- Voice recording container -->
+                <div class="form-group" id="voice-recording-container" style="display: none;">
+                    <label>Voice Recording</label>
+                    <div class="recording-controls">
+                        <button type="button" class="record-btn" id="record-btn">
+                            <i class="fas fa-microphone"></i> Record
+                        </button>
+                        <button type="button" class="stop-btn" id="stop-btn" disabled>
+                            <i class="fas fa-stop"></i> Stop
+                        </button>
+                        <button type="button" class="play-btn" id="play-btn" disabled>
+                            <i class="fas fa-play"></i> Play
+                        </button>
+                        <span class="recording-status" id="recording-status"></span>
+                        <span class="recording-timer" id="recording-timer">00:00</span>
+                    </div>
+                    <audio class="audio-preview" id="audio-preview" controls></audio>
+                </div>
+                
+                <!-- File upload container -->
+                <div class="form-group" id="file-upload-container" style="display: none;">
+                    <label>File Attachment</label>
+                    <div class="file-upload">
+                        <input type="file" id="file-input" class="form-control">
+                    </div>
+                    <div class="file-preview-container">
+                        <img id="image-preview" class="file-preview">
+                        <a id="file-download" class="file-preview" style="display: none;">Download File</a>
+                    </div>
+                </div>
+                
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" id="cancel-note">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="save-note">Save</button>
@@ -621,7 +727,6 @@
                     </div>
                 </div>
             </div>
-            <!-- Add this button to the profile modal footer -->
             <div class="modal-footer">
                 <button type="button" class="btn btn-danger" id="delete-all-notes">Delete All Notes</button>
                 <button type="button" class="btn btn-secondary" id="close-profile">Close</button>
@@ -636,6 +741,14 @@
         let socket = null;
         let currentUser = null;
         let clientId = generateClientId();
+
+        // Voice recording variables
+        let mediaRecorder;
+        let audioChunks = [];
+        let recordingStartTime;
+        let recordingTimer;
+        let currentAudioBlob = null;
+        let currentFile = null;
 
         // DOM elements
         const authButtons = document.getElementById('auth-buttons');
@@ -722,7 +835,164 @@
             registerForm.addEventListener('submit', handleRegister);
             noteForm.addEventListener('submit', handleNoteSubmit);
 
+            // Note type change
+            document.querySelectorAll('input[name="note-type"]').forEach(radio => {
+                radio.addEventListener('change', handleNoteTypeChange);
+            });
+
+            // Voice recording buttons
+            document.getElementById('record-btn').addEventListener('click', startRecording);
+            document.getElementById('stop-btn').addEventListener('click', stopRecording);
+            document.getElementById('play-btn').addEventListener('click', playRecording);
+
+            // File upload
+            document.getElementById('file-input').addEventListener('change', handleFileUpload);
+
+            // Delete all notes
             document.getElementById('delete-all-notes').addEventListener('click', deleteAllNotes);
+
+            // Додаткові обробники для форми нотатки
+            noteForm.addEventListener('submit', async (e) => {
+                await handleNoteSubmit(e);
+            });
+
+            // Перевірка стану форми перед відправкою
+            noteForm.addEventListener('input', () => {
+                const title = document.getElementById('note-title').value;
+                const content = document.getElementById('note-content').value;
+                const noteType = document.querySelector('input[name="note-type"]:checked').value;
+                
+                let isValid = title.trim() !== '' && content.trim() !== '';
+                
+                if (noteType === 'voice') {
+                    isValid = isValid && currentAudioBlob !== null;
+                } else if (noteType === 'image') {
+                    isValid = isValid && currentFile !== null;
+                }
+                
+                document.getElementById('save-note').disabled = !isValid;
+            });
+        }
+
+        function handleNoteTypeChange() {
+            const noteType = document.querySelector('input[name="note-type"]:checked').value;
+            const voiceContainer = document.getElementById('voice-recording-container');
+            const fileContainer = document.getElementById('file-upload-container');
+            
+            voiceContainer.style.display = noteType === 'voice' ? 'block' : 'none';
+            fileContainer.style.display = noteType === 'image' ? 'block' : 'none';
+            
+            if (noteType !== 'voice') {
+                resetRecording();
+            }
+            if (noteType !== 'image') {
+                resetFileUpload();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = () => {
+                    currentAudioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    const audioUrl = URL.createObjectURL(currentAudioBlob);
+                    document.getElementById('audio-preview').src = audioUrl;
+                    document.getElementById('audio-preview').style.display = 'block';
+                    document.getElementById('play-btn').disabled = false;
+                    document.getElementById('recording-status').textContent = 'Recording saved';
+                };
+                
+                mediaRecorder.start();
+                recordingStartTime = Date.now();
+                updateRecordingTimer();
+                
+                document.getElementById('record-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = false;
+                document.getElementById('recording-status').textContent = 'Recording...';
+                document.getElementById('recording-status').style.color = 'var(--danger-color)';
+            } catch (error) {
+                showAlert('Error accessing microphone: ' + error.message, 'error');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                clearInterval(recordingTimer);
+                
+                document.getElementById('record-btn').disabled = false;
+                document.getElementById('stop-btn').disabled = true;
+            }
+        }
+
+        function playRecording() {
+            const audioPreview = document.getElementById('audio-preview');
+            audioPreview.play();
+        }
+
+        function updateRecordingTimer() {
+            recordingTimer = setInterval(() => {
+                const elapsedTime = Math.floor((Date.now() - recordingStartTime) / 1000);
+                const minutes = Math.floor(elapsedTime / 60).toString().padStart(2, '0');
+                const seconds = (elapsedTime % 60).toString().padStart(2, '0');
+                document.getElementById('recording-timer').textContent = `${minutes}:${seconds}`;
+            }, 1000);
+        }
+
+        function resetRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            clearInterval(recordingTimer);
+            audioChunks = [];
+            currentAudioBlob = null;
+            
+            document.getElementById('audio-preview').src = '';
+            document.getElementById('audio-preview').style.display = 'none';
+            document.getElementById('record-btn').disabled = false;
+            document.getElementById('stop-btn').disabled = true;
+            document.getElementById('play-btn').disabled = true;
+            document.getElementById('recording-status').textContent = '';
+            document.getElementById('recording-timer').textContent = '00:00';
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            currentFile = file;
+            const preview = document.getElementById('image-preview');
+            const downloadLink = document.getElementById('file-download');
+            
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                    downloadLink.style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+            } else {
+                preview.style.display = 'none';
+                downloadLink.href = URL.createObjectURL(file);
+                downloadLink.download = file.name;
+                downloadLink.textContent = `Download ${file.name}`;
+                downloadLink.style.display = 'block';
+            }
+        }
+
+        function resetFileUpload() {
+            document.getElementById('file-input').value = '';
+            document.getElementById('image-preview').style.display = 'none';
+            document.getElementById('file-download').style.display = 'none';
+            currentFile = null;
         }
 
         function deleteAllNotes() {
@@ -882,6 +1152,91 @@
             });
         }
 
+        async function handleNoteSubmit(e) {
+            e.preventDefault();
+            
+            // Перевірка наявності користувача
+            if (!currentUser) {
+                showAlert('You need to login first', 'error');
+                resetButtons();
+                return;
+            }
+
+            const noteId = document.getElementById('note-id').value;
+            const title = document.getElementById('note-title').value;
+            const content = document.getElementById('note-content').value;
+            const noteType = document.querySelector('input[name="note-type"]:checked').value;
+            const encrypt = document.getElementById('note-encrypt').checked;
+
+            let finalContent = content;
+            let attachment = null;
+
+            if (noteType === 'voice' && currentAudioBlob) {
+                // Convert voice recording to base64
+                finalContent = "Voice recording";
+                attachment = {
+                    type: 'audio',
+                    data: await blobToBase64(currentAudioBlob)
+                };
+            } else if (noteType === 'image' && currentFile) {
+                // Convert file to base64
+                finalContent = currentFile.type.startsWith('image/') ? "Image attachment" : "File attachment";
+                attachment = {
+                    type: currentFile.type.startsWith('image/') ? 'image' : 'file',
+                    name: currentFile.name,
+                    data: await fileToBase64(currentFile)
+                };
+            }
+
+            const submitBtn = noteForm.querySelector('button[type="submit"]');
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            submitBtn.disabled = true;
+
+            try {
+                if (noteId) {
+                    await sendRequest('update_note', {
+                        user_id: currentUser.id,
+                        note_id: noteId,
+                        update_data: {
+                            title,
+                            content: finalContent,
+                            note_type: noteType,
+                            encrypt,
+                            attachment: attachment ? JSON.stringify(attachment) : null
+                        }
+                    });
+                } else {
+                    await sendRequest('create_note', {
+                        user_id: currentUser.id,
+                        title,
+                        content: finalContent,
+                        note_type: noteType,
+                        encrypt,
+                        attachment: attachment ? JSON.stringify(attachment) : null
+                    });
+                }
+            } catch (error) {
+                showAlert('Error saving note: ' + error.message, 'error');
+                resetButtons();
+            }
+        }
+
+        function blobToBase64(blob) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                reader.readAsDataURL(file);
+            });
+        }
+
         function handleWebSocketMessage(data) {
             if (!data || !data.status) {
                 console.log('Unknown message type:', data);
@@ -909,8 +1264,7 @@
                         handleDeleteNoteResponse(data);
                     } else if (data.action === 'search_notes') {
                         displayNotes(data.notes);
-                    }
-                    else if (data.action === 'delete_all_notes') {
+                    } else if (data.action === 'delete_all_notes') {
                         handleDeleteAllNotesResponse(data);
                     }
                     break;
@@ -1038,6 +1392,11 @@
         }
 
         function showCreateNoteModal() {
+            if (!currentUser) {
+                showAlert('You need to login first', 'error');
+                return;
+            }
+
             document.getElementById('note-modal-title').textContent = 'Create Note';
             document.getElementById('note-id').value = '';
             document.getElementById('note-title').value = '';
@@ -1045,7 +1404,18 @@
             document.querySelector('input[name="note-type"][value="text"]').checked = true;
             document.getElementById('note-encrypt').checked = false;
             document.getElementById('save-note').textContent = 'Create';
+            
+            // Reset voice recording
+            resetRecording();
+            
+            // Reset file upload
+            resetFileUpload();
+            
+            // Show the modal
             showModal(noteModal);
+            
+            // Trigger note type change to hide/show appropriate sections
+            handleNoteTypeChange();
         }
 
         function showEditNoteModal(note) {
@@ -1056,52 +1426,46 @@
             document.querySelector(`input[name="note-type"][value="${note.note_type}"]`).checked = true;
             document.getElementById('note-encrypt').checked = note.is_encrypted || false;
             document.getElementById('save-note').textContent = 'Update';
-            showModal(noteModal);
-        }
-
-        function handleNoteSubmit(e) {
-            e.preventDefault();
-            const noteId = document.getElementById('note-id').value;
-            const title = document.getElementById('note-title').value;
-            const content = document.getElementById('note-content').value;
-            const noteType = document.querySelector('input[name="note-type"]:checked').value;
-            const encrypt = document.getElementById('note-encrypt').checked;
-
-            const submitBtn = noteForm.querySelector('button[type="submit"]');
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-            submitBtn.disabled = true;
-
-            if (noteId) {
-                if (!currentUser) {
-                    showAlert('You need to login to edit notes', 'error');
-                    resetButtons();
-                    return;
-                }
-                
-                sendRequest('update_note', {
-                    user_id: currentUser.id,
-                    note_id: noteId,
-                    update_data: {
-                        title,
-                        content,
-                        note_type: noteType,
-                        encrypt
+            
+            // Handle note type specific content
+            if (note.note_type === 'voice' && note.attachment) {
+                try {
+                    const attachment = typeof note.attachment === 'string' ? JSON.parse(note.attachment) : note.attachment;
+                    if (attachment.type === 'audio') {
+                        document.getElementById('audio-preview').src = `data:audio/wav;base64,${attachment.data}`;
+                        document.getElementById('audio-preview').style.display = 'block';
+                        document.getElementById('play-btn').disabled = false;
                     }
-                });
-            } else {
-                const noteData = {
-                    title,
-                    content,
-                    note_type: noteType,
-                    encrypt
-                };
-                
-                if (currentUser) {
-                    noteData.user_id = currentUser.id;
+                } catch (e) {
+                    console.error('Error parsing voice attachment:', e);
                 }
-                
-                sendRequest('create_note', noteData);
+            } else if (note.note_type === 'image' && note.attachment) {
+                try {
+                    const attachment = typeof note.attachment === 'string' ? JSON.parse(note.attachment) : note.attachment;
+                    const preview = document.getElementById('image-preview');
+                    const downloadLink = document.getElementById('file-download');
+                    
+                    if (attachment.type === 'image') {
+                        preview.src = `data:image/*;base64,${attachment.data}`;
+                        preview.style.display = 'block';
+                        downloadLink.style.display = 'none';
+                    } else {
+                        downloadLink.href = `data:application/octet-stream;base64,${attachment.data}`;
+                        downloadLink.download = attachment.name;
+                        downloadLink.textContent = `Download ${attachment.name}`;
+                        downloadLink.style.display = 'block';
+                        preview.style.display = 'none';
+                    }
+                } catch (e) {
+                    console.error('Error parsing file attachment:', e);
+                }
             }
+            
+            // Show the modal
+            showModal(noteModal);
+            
+            // Trigger note type change to hide/show appropriate sections
+            handleNoteTypeChange();
         }
 
         function handleCreateNoteResponse(data) {
@@ -1179,6 +1543,41 @@
                 
                 const createdDate = note.time_creation ? new Date(note.time_creation).toLocaleString() : 'Unknown date';
                 
+                let content = note.content || '';
+                let attachmentHtml = '';
+                
+                if (note.attachment) {
+                    try {
+                        const attachment = typeof note.attachment === 'string' 
+                            ? JSON.parse(note.attachment) 
+                            : note.attachment;
+                        
+                        if (attachment.type === 'audio') {
+                            attachmentHtml = `
+                                <div class="note-attachment">
+                                    <audio controls src="data:audio/wav;base64,${attachment.data}" style="width: 100%"></audio>
+                                </div>
+                            `;
+                        } else if (attachment.type === 'image') {
+                            attachmentHtml = `
+                                <div class="note-attachment">
+                                    <img src="data:image/*;base64,${attachment.data}" style="max-width: 100%; max-height: 200px;">
+                                </div>
+                            `;
+                        } else if (attachment.type === 'file') {
+                            attachmentHtml = `
+                                <div class="note-attachment">
+                                    <a href="data:application/octet-stream;base64,${attachment.data}" download="${attachment.name}">
+                                        <i class="fas fa-file-download"></i> Download ${attachment.name}
+                                    </a>
+                                </div>
+                            `;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing attachment:', e);
+                    }
+                }
+                
                 noteCard.innerHTML = `
                     <div class="note-header">
                         <div class="note-title">${note.title || 'Untitled'} 
@@ -1186,7 +1585,8 @@
                         </div>
                         <div class="note-type">${note.note_type || 'text'}</div>
                     </div>
-                    <div class="note-content">${note.content || ''}</div>
+                    <div class="note-content">${content}</div>
+                    ${attachmentHtml}
                     <div class="note-footer">
                         <div>Created: ${createdDate}</div>
                         <div class="note-actions">

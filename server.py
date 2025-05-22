@@ -134,12 +134,26 @@ class NoteServer:
         content = data.get('content')
         note_type = data.get('note_type', 'text')
         encrypt = data.get('encrypt', False)
+        attachment = data.get('attachment')
         
         if encrypt:
             content = Encryption.encrypt(content)
         
         try:
-            result = self.db.create_note(user_id, title, content, note_type, encrypt)
+            note_data = {
+                "user_id": user_id,
+                "title": title,
+                "content": content,
+                "note_type": note_type,
+                "time_creation": datetime.now(),
+                "time_update": datetime.now(),
+                "is_encrypted": encrypt
+            }
+            
+            if attachment:
+                note_data["attachment"] = json.loads(attachment)
+            
+            result = Notes.insert_one(note_data)
             return {
                 "status": "success",
                 "action": "create_note",
@@ -173,7 +187,8 @@ class NoteServer:
                 "content": note.get('content', ''),
                 "note_type": note.get('note_type', 'text'),
                 "time_creation": note.get('time_creation', datetime.now()).isoformat(),
-                "is_encrypted": note.get('is_encrypted', False)
+                "is_encrypted": note.get('is_encrypted', False),
+                "attachment": note.get('attachment')
             }
             
             if note_data['is_encrypted']:
@@ -207,10 +222,16 @@ class NoteServer:
             update_data['content'] = Encryption.encrypt(update_data['content'])
             update_data['is_encrypted'] = True
         
+        if 'attachment' in update_data:
+            update_data['attachment'] = json.loads(update_data['attachment'])
+        
         update_data['time_update'] = datetime.now()
         
         try:
-            result = self.db.update_note(note_id, user_id, update_data)
+            result = Notes.update_one(
+                {"_id": ObjectId(note_id), "user_id": user_id},
+                {"$set": update_data}
+            )
             if result.modified_count == 0:
                 return {
                     "status": "error",
@@ -242,7 +263,7 @@ class NoteServer:
             }
         
         try:
-            result = self.db.delete_note(note_id, user_id)
+            result = Notes.delete_one({"_id": ObjectId(note_id), "user_id": user_id})
             if result.deleted_count == 0:
                 return {
                     "status": "error",
@@ -284,7 +305,8 @@ class NoteServer:
                 "content": note.get('content', ''),
                 "note_type": note.get('note_type', 'text'),
                 "time_creation": note.get('time_creation', datetime.now()).isoformat(),
-                "is_encrypted": note.get('is_encrypted', False)
+                "is_encrypted": note.get('is_encrypted', False),
+                "attachment": note.get('attachment')
             }
             
             if note_data['is_encrypted']:
