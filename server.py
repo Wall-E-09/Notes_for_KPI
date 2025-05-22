@@ -6,6 +6,7 @@ from bson import json_util
 from database import Database
 from utils import Encryption
 from config import Config
+from bson import ObjectId
 
 class NoteServer:
     def __init__(self):
@@ -16,19 +17,16 @@ class NoteServer:
     async def handle_client(self, websocket, path=None):
         client_id = None
         try:
-            # Отримуємо ініціалізаційне повідомлення
             init_data = json.loads(await websocket.recv())
             client_id = init_data.get('client_id', str(datetime.now().timestamp()))
             self.clients[client_id] = websocket
             print(f"Client {client_id} connected")
 
-            # Відправляємо підтвердження підключення
             await websocket.send(json.dumps({
                 "status": "connected",
                 "client_id": client_id
             }))
 
-            # Обробка вхідних повідомлень
             async for message in websocket:
                 try:
                     data = json.loads(message)
@@ -61,6 +59,14 @@ class NoteServer:
             return await self.handle_create_note(data)
         elif action == 'get_notes':
             return await self.handle_get_notes(data)
+        elif action == 'update_note':
+            return await self.handle_update_note(data)
+        elif action == 'delete_note':
+            return await self.handle_delete_note(data)
+        elif action == 'search_notes':
+            return await self.handle_search_notes(data)
+        elif action == 'logout':
+            return await self.handle_logout(data)
         else:
             return {"status": "error", "message": "Unknown action"}
 
@@ -70,10 +76,10 @@ class NoteServer:
         
         user = self.db.get_user_by_email(email)
         if not user:
-            return {"status": "error", "message": "User not found"}
+            return {"status": "error", "message": "User not found", "action": "login"}
         
         if user['password'] != password:
-            return {"status": "error", "message": "Invalid password"}
+            return {"status": "error", "message": "Invalid password", "action": "login"}
         
         user_id = str(user['_id'])
         self.sessions[user_id] = client_id
@@ -81,6 +87,7 @@ class NoteServer:
         return {
             "status": "success",
             "message": "Login successful",
+            "action": "login",  # Додаємо action для клієнта
             "user": {
                 "id": user_id,
                 "username": user['username'],
@@ -95,6 +102,7 @@ class NoteServer:
         
         try:
             result = self.db.create_user(username, email, password)
+            self.db.create_settings(str(result.inserted_id))
             return {
                 "status": "success",
                 "message": "User created successfully",
@@ -129,6 +137,94 @@ class NoteServer:
         
         notes_list = []
         for note in notes:
+            # Переконайтеся, що всі обов'язкові поля присутні
+            note_data = {
+                '_id': str(note['_id']),
+                'user_id': note.get('user_id', ''),
+                'title': note.get('title', 'Untitled'),
+                'content': note.get('content', ''),
+                'note_type': note.get('note_type', 'text'),
+                'time_creation': note.get('time_creation', datetime.now()).isoformat(),
+                'is_encrypted': note.get('is_encrypted', False)
+            }
+            
+            if note_data['is_encrypted']:
+                try:
+                    note_data['content'] = Encryption.decrypt(note_data['content'])
+                except Exception as e:
+                    print(f"Error decrypting note {note_data['_id']}: {str(e)}")
+                    note_data['content'] = '[Encrypted content - decryption failed]'
+            
+            notes_list.append(note_data)
+        
+        return {
+            "status": "success",
+            "action": "get_notes",  # Додаємо action для клієнта
+            "notes": notes_list
+        }
+
+    async def handle_update_note(self, data):
+        user_id = data.get('user_id')
+        note_id = data.get('note_id')
+        update_data = data.get('update_data', {})
+        
+        # Додаємо час оновлення
+        update_data['time_update'] = datetime.now()
+        
+        try:
+            result = self.db.update_note(note_id, user_id, update_data)
+            if result.modified_count == 0:
+                return {
+                    "status": "error",
+                    "action": "update_note",
+                    "message": "Note not found or not updated"
+                }
+            
+            return {
+                "status": "success",
+                "action": "update_note",
+                "message": "Note updated successfully"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "action": "update_note",
+                "message": str(e)
+            }
+
+    async def handle_delete_note(self, data):
+        user_id = data.get('user_id')
+        note_id = data.get('note_id')
+        
+        try:
+            result = self.db.delete_note(note_id, user_id)
+            if result.deleted_count == 0:
+                return {
+                    "status": "error",
+                    "action": "delete_note",
+                    "message": "Note not found or not deleted"
+                }
+            
+            return {
+                "status": "success",
+                "action": "delete_note",
+                "message": "Note deleted successfully"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "action": "delete_note",
+                "message": str(e)
+            }
+
+    async def handle_search_notes(self, data):
+        user_id = data.get('user_id')
+        query = data.get('query', '')
+        
+        notes = self.db.search_notes(user_id, query)
+        
+        notes_list = []
+        for note in notes:
             note['_id'] = str(note['_id'])
             if note.get('is_encrypted'):
                 note['content'] = Encryption.decrypt(note['content'])
@@ -140,6 +236,12 @@ class NoteServer:
             "status": "success",
             "notes": notes_list
         }
+
+    async def handle_logout(self, data):
+        user_id = data.get('user_id')
+        if user_id in self.sessions:
+            self.sessions.pop(user_id)
+        return {"status": "success", "message": "Logged out"}
 
     async def run(self):
         start_server = websockets.serve(
@@ -153,7 +255,7 @@ class NoteServer:
         print(f"Server started on ws://{Config.WEBSOCKET_HOST}:{Config.WEBSOCKET_PORT}")
         
         try:
-            await asyncio.Future()  # Запускаємо на невизначений термін
+            await asyncio.Future()
         except KeyboardInterrupt:
             print("\nServer shutting down...")
             server.close()

@@ -1,6 +1,7 @@
 from datetime import datetime
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING
 from config import Config
+from bson import ObjectId
 
 class Model:
     _db = None
@@ -56,7 +57,7 @@ class Users(Model):
         user_data = {
             "username": username,
             "email": email,
-            "password": password,  # У реальному додатку використовуйте хешування
+            "password": password,
             "created_at": datetime.now(),
             "updated_at": datetime.now()
         }
@@ -65,6 +66,11 @@ class Users(Model):
 
 class Notes(Model):
     NOTE_TYPES = ["text", "voice", "image"]
+    
+    @classmethod
+    def create_indexes(cls):
+        cls.get_collection().create_index("user_id")
+        cls.get_collection().create_index([("title", ASCENDING)])
     
     @classmethod
     def create_note(cls, user_id, title, content, note_type, is_encrypted=False):
@@ -85,6 +91,10 @@ class Notes(Model):
 
 class Settings(Model):
     @classmethod
+    def create_indexes(cls):
+        cls.get_collection().create_index("user_id", unique=True)
+    
+    @classmethod
     def create_settings(cls, user_id):
         settings_data = {
             "user_id": user_id,
@@ -98,6 +108,10 @@ class Settings(Model):
 
 class Attachments(Model):
     @classmethod
+    def create_indexes(cls):
+        cls.get_collection().create_index("note_id")
+    
+    @classmethod
     def create_attachment(cls, note_id, file_type, file_path):
         attachment_data = {
             "note_id": note_id,
@@ -109,6 +123,10 @@ class Attachments(Model):
 
 
 class Admin(Model):
+    @classmethod
+    def create_indexes(cls):
+        cls.get_collection().create_index("user_id", unique=True)
+    
     @classmethod
     def create_admin(cls, user_id, permissions):
         admin_data = {

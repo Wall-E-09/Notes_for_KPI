@@ -52,7 +52,6 @@ class NoteClient:
                 return False
 
     def _is_connected(self):
-        # Найнадійніший спосіб перевірки з'єднання
         try:
             return self.websocket is not None and not self.websocket.closed
         except:
@@ -69,7 +68,6 @@ class NoteClient:
                 await asyncio.sleep(Config.PING_INTERVAL)
                 if self._is_connected():
                     try:
-                        # Відправляємо тестове повідомлення для перевірки з'єднання
                         await self.websocket.ping()
                     except:
                         print("Connection check failed, reconnecting...")
@@ -166,6 +164,52 @@ class NoteClient:
             "user_id": self.current_user["id"]
         })
 
+    async def update_note(self, note_id, title=None, content=None, encrypt=None):
+        if not self.current_user:
+            return {"status": "error", "message": "You need to login first"}
+        
+        update_data = {}
+        if title: update_data["title"] = title
+        if content: update_data["content"] = content
+        if encrypt is not None: update_data["encrypt"] = encrypt
+        
+        return await self.send_request("update_note", {
+            "user_id": self.current_user["id"],
+            "note_id": note_id,
+            "update_data": update_data
+        })
+
+    async def delete_note(self, note_id):
+        if not self.current_user:
+            return {"status": "error", "message": "You need to login first"}
+        
+        return await self.send_request("delete_note", {
+            "user_id": self.current_user["id"],
+            "note_id": note_id
+        })
+
+    async def search_notes(self, query):
+        if not self.current_user:
+            return {"status": "error", "message": "You need to login first"}
+        
+        return await self.send_request("search_notes", {
+            "user_id": self.current_user["id"],
+            "query": query
+        })
+
+    async def logout(self):
+        if not self.current_user:
+            return {"status": "error", "message": "Not logged in"}
+        
+        response = await self.send_request("logout", {
+            "user_id": self.current_user["id"]
+        })
+        
+        if response["status"] == "success":
+            self.current_user = None
+        
+        return response
+
 class ConsoleInterface:
     def __init__(self):
         self.client = NoteClient()
@@ -186,7 +230,11 @@ class ConsoleInterface:
                 print("2. Register")
                 print("3. Create Note")
                 print("4. View Notes")
-                print("5. Exit")
+                print("5. Update Note")
+                print("6. Delete Note")
+                print("7. Search Notes")
+                print("8. Logout")
+                print("9. Exit")
                 
                 choice = input("Select an option: ").strip()
                 
@@ -199,6 +247,14 @@ class ConsoleInterface:
                 elif choice == "4":
                     await self.handle_view_notes()
                 elif choice == "5":
+                    await self.handle_update_note()
+                elif choice == "6":
+                    await self.handle_delete_note()
+                elif choice == "7":
+                    await self.handle_search_notes()
+                elif choice == "8":
+                    await self.handle_logout()
+                elif choice == "9":
                     self._running = False
                 else:
                     print("Invalid option")
@@ -268,6 +324,98 @@ class ConsoleInterface:
                 input("\nPress Enter to continue...")
         else:
             print(response["message"])
+
+    async def handle_update_note(self):
+        if not self.client.current_user:
+            print("You need to login first")
+            return
+        
+        response = await self.client.get_notes()
+        if response["status"] != "success":
+            print(response["message"])
+            return
+        
+        notes = response.get("notes", [])
+        if not notes:
+            print("No notes found")
+            return
+        
+        print("\nYour Notes:")
+        for idx, note in enumerate(notes, 1):
+            print(f"{idx}. {note['title']} ({note['note_type']})")
+        
+        note_choice = input("Enter note number to update or 0 to go back: ")
+        if note_choice.isdigit() and 0 < int(note_choice) <= len(notes):
+            selected_note = notes[int(note_choice)-1]
+            
+            title = input(f"New title ({selected_note['title']}): ").strip()
+            content = input(f"New content ({selected_note['content'][:20]}...): ").strip()
+            encrypt = input(f"Encrypt note? (y/n, current: {'Yes' if selected_note.get('is_encrypted') else 'No'}): ").lower().strip()
+            
+            update_data = {}
+            if title: update_data["title"] = title
+            if content: update_data["content"] = content
+            if encrypt: update_data["encrypt"] = encrypt == "y"
+            
+            response = await self.client.update_note(selected_note["_id"], **update_data)
+            print(response["message"])
+
+    async def handle_delete_note(self):
+        if not self.client.current_user:
+            print("You need to login first")
+            return
+        
+        response = await self.client.get_notes()
+        if response["status"] != "success":
+            print(response["message"])
+            return
+        
+        notes = response.get("notes", [])
+        if not notes:
+            print("No notes found")
+            return
+        
+        print("\nYour Notes:")
+        for idx, note in enumerate(notes, 1):
+            print(f"{idx}. {note['title']} ({note['note_type']})")
+        
+        note_choice = input("Enter note number to delete or 0 to go back: ")
+        if note_choice.isdigit() and 0 < int(note_choice) <= len(notes):
+            confirm = input(f"Are you sure you want to delete '{notes[int(note_choice)-1]['title']}'? (y/n): ")
+            if confirm.lower() == "y":
+                response = await self.client.delete_note(notes[int(note_choice)-1]["_id"])
+                print(response["message"])
+
+    async def handle_search_notes(self):
+        if not self.client.current_user:
+            print("You need to login first")
+            return
+        
+        query = input("Enter search query: ")
+        response = await self.client.search_notes(query)
+        
+        if response["status"] == "success":
+            notes = response.get("notes", [])
+            if not notes:
+                print("No matching notes found")
+                return
+            
+            print("\nSearch Results:")
+            for idx, note in enumerate(notes, 1):
+                print(f"{idx}. {note['title']} ({note['note_type']})")
+            
+            note_choice = input("Enter note number to view or 0 to go back: ")
+            if note_choice.isdigit() and 0 < int(note_choice) <= len(notes):
+                selected_note = notes[int(note_choice)-1]
+                print(f"\nTitle: {selected_note['title']}")
+                print(f"Content:\n{selected_note['content']}")
+                input("\nPress Enter to continue...")
+        else:
+            print(response["message"])
+
+    async def handle_logout(self):
+        response = await self.client.logout()
+        print(response["message"])
 
 if __name__ == "__main__":
     interface = ConsoleInterface()
