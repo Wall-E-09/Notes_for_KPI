@@ -45,6 +45,10 @@ class Model:
     @classmethod
     def delete_one(cls, query):
         return cls.get_collection().delete_one(query)
+    
+    @classmethod
+    def delete_many(cls, query):
+        return cls.get_collection().delete_many(query)
 
 
 class Users(Model):

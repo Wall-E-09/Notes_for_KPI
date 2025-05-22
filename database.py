@@ -53,3 +53,6 @@ class Database:
     
     def create_admin(self, user_id, permissions):
         return Admin.create_admin(user_id, permissions)
+    
+    def delete_all_notes(self, user_id):
+        return Notes.delete_many({"user_id": user_id})

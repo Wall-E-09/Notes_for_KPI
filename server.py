@@ -68,6 +68,8 @@ class NoteServer:
             return await self.handle_logout(data)
         elif action == 'init' or action == 'restore_session':
             return {"status": "connected"}
+        elif action == 'delete_all_notes':
+            return await self.handle_delete_all_notes(data)
         else:
             return {"status": "error", "message": "Unknown action"}
 
@@ -126,7 +128,7 @@ class NoteServer:
             }
 
     async def handle_create_note(self, data):
-        user_id = data.get('user_id')
+        user_id = data.get('user_id')  # Can be None for anonymous notes
         title = data.get('title')
         content = data.get('content')
         note_type = data.get('note_type', 'text')
@@ -152,6 +154,13 @@ class NoteServer:
 
     async def handle_get_notes(self, data):
         user_id = data.get('user_id')
+        if not user_id:
+            return {
+                "status": "error",
+                "action": "get_notes",
+                "message": "You need to login to view your notes"
+            }
+        
         notes = self.db.get_user_notes(user_id)
         
         notes_list = []
@@ -256,6 +265,13 @@ class NoteServer:
         user_id = data.get('user_id')
         query = data.get('query', '')
         
+        if not user_id:
+            return {
+                "status": "error",
+                "action": "search_notes",
+                "message": "You need to login to search notes"
+            }
+        
         notes = self.db.search_notes(user_id, query)
         
         notes_list = []
@@ -311,6 +327,29 @@ class NoteServer:
             print("\nServer shutting down...")
             server.close()
             await server.wait_closed()
+
+    async def handle_delete_all_notes(self, data):
+        user_id = data.get('user_id')
+        if not user_id:
+            return {
+                "status": "error",
+                "action": "delete_all_notes",
+                "message": "You need to login to delete notes"
+            }
+        
+        try:
+            result = Notes.delete_many({"user_id": user_id})
+            return {
+                "status": "success",
+                "action": "delete_all_notes",
+                "message": f"Deleted {result.deleted_count} notes"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "action": "delete_all_notes",
+                "message": str(e)
+            }
 
 if __name__ == "__main__":
     server = NoteServer()

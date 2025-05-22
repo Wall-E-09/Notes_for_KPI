@@ -336,6 +336,18 @@
             margin-left: 15px;
         }
 
+        .profile-btn {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: 15px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
         .encrypted-badge {
             display: inline-block;
             padding: 3px 8px;
@@ -387,6 +399,49 @@
             to { transform: translateX(0); }
         }
 
+        /* Profile modal */
+        .profile-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .profile-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: var(--accent-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 36px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        .profile-info {
+            width: 100%;
+        }
+
+        .profile-field {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .profile-field label {
+            font-weight: 600;
+            color: var(--secondary-color);
+        }
+
+        .profile-field span {
+            color: var(--dark-color);
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 flex-direction: column;
@@ -410,6 +465,9 @@
             <div id="user-info" class="user-info" style="display: none;">
                 <div class="user-avatar" id="user-avatar">U</div>
                 <div class="user-name" id="user-name">User</div>
+                <button class="profile-btn" id="profile-btn">
+                    <i class="fas fa-user"></i> Profile
+                </button>
                 <button class="logout-btn" id="logout-btn">Logout</button>
             </div>
         </div>
@@ -421,7 +479,7 @@
                 <div class="search-box">
                     <input type="text" class="search-input" id="search-input" placeholder="Search notes...">
                 </div>
-                <button class="create-note-btn" id="create-note-btn" style="display: none;">
+                <button class="create-note-btn" id="create-note-btn">
                     <i class="fas fa-plus"></i> Create Note
                 </button>
                 <div id="notes-filter">
@@ -539,6 +597,38 @@
         </div>
     </div>
 
+    <!-- Profile Modal -->
+    <div class="modal" id="profile-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">User Profile</div>
+                <button class="close-btn" id="close-profile-modal">&times;</button>
+            </div>
+            <div class="profile-content">
+                <div class="profile-avatar" id="profile-avatar">U</div>
+                <div class="profile-info">
+                    <div class="profile-field">
+                        <label>Username:</label>
+                        <span id="profile-username">username</span>
+                    </div>
+                    <div class="profile-field">
+                        <label>Email:</label>
+                        <span id="profile-email">email@example.com</span>
+                    </div>
+                    <div class="profile-field">
+                        <label>Registered:</label>
+                        <span id="profile-registered">Unknown date</span>
+                    </div>
+                </div>
+            </div>
+            <!-- Add this button to the profile modal footer -->
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger" id="delete-all-notes">Delete All Notes</button>
+                <button type="button" class="btn btn-secondary" id="close-profile">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // WebSocket connection
         const WS_HOST = '127.0.0.1';
@@ -553,6 +643,7 @@
         const userAvatar = document.getElementById('user-avatar');
         const userName = document.getElementById('user-name');
         const logoutBtn = document.getElementById('logout-btn');
+        const profileBtn = document.getElementById('profile-btn');
         const loginBtn = document.getElementById('login-btn');
         const registerBtn = document.getElementById('register-btn');
         const createNoteBtn = document.getElementById('create-note-btn');
@@ -563,12 +654,15 @@
         const loginModal = document.getElementById('login-modal');
         const registerModal = document.getElementById('register-modal');
         const noteModal = document.getElementById('note-modal');
+        const profileModal = document.getElementById('profile-modal');
         const closeLoginModal = document.getElementById('close-login-modal');
         const closeRegisterModal = document.getElementById('close-register-modal');
         const closeNoteModal = document.getElementById('close-note-modal');
+        const closeProfileModal = document.getElementById('close-profile-modal');
         const cancelLogin = document.getElementById('cancel-login');
         const cancelRegister = document.getElementById('cancel-register');
         const cancelNote = document.getElementById('cancel-note');
+        const closeProfile = document.getElementById('close-profile');
 
         // Forms
         const loginForm = document.getElementById('login-form');
@@ -603,13 +697,12 @@
             loginBtn.addEventListener('click', () => showModal(loginModal));
             registerBtn.addEventListener('click', () => showModal(registerModal));
             logoutBtn.addEventListener('click', logout);
+            profileBtn.addEventListener('click', showProfile);
+            closeProfileModal.addEventListener('click', () => hideModal(profileModal));
+            closeProfile.addEventListener('click', () => hideModal(profileModal));
 
             // Create note button
             createNoteBtn.addEventListener('click', () => {
-                if (!currentUser) {
-                    showAlert('Please login to create notes', 'error');
-                    return;
-                }
                 showCreateNoteModal();
             });
 
@@ -628,6 +721,39 @@
             loginForm.addEventListener('submit', handleLogin);
             registerForm.addEventListener('submit', handleRegister);
             noteForm.addEventListener('submit', handleNoteSubmit);
+
+            document.getElementById('delete-all-notes').addEventListener('click', deleteAllNotes);
+        }
+
+        function deleteAllNotes() {
+            if (!currentUser) {
+                showAlert('You need to login to delete notes', 'error');
+                return;
+            }
+
+            if (confirm('Are you sure you want to delete ALL your notes? This action cannot be undone!')) {
+                const btn = document.getElementById('delete-all-notes');
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+                btn.disabled = true;
+                
+                sendRequest('delete_all_notes', {
+                    user_id: currentUser.id
+                });
+            }
+        }
+
+        function showProfile() {
+            if (!currentUser) {
+                showAlert('Please login to view profile', 'error');
+                return;
+            }
+            
+            document.getElementById('profile-avatar').textContent = currentUser.username.charAt(0).toUpperCase();
+            document.getElementById('profile-username').textContent = currentUser.username;
+            document.getElementById('profile-email').textContent = currentUser.email;
+            document.getElementById('profile-registered').textContent = 'Just now';
+            
+            showModal(profileModal);
         }
 
         function connectWebSocket() {
@@ -671,7 +797,7 @@
                 if (currentUser) {
                     loadNotes();
                 } else {
-                    notesContainer.innerHTML = '<p>Connected. Please login.</p>';
+                    notesContainer.innerHTML = '<p>Connected. Please login to view your notes.</p>';
                 }
             } else {
                 notesContainer.innerHTML = `
@@ -784,6 +910,9 @@
                     } else if (data.action === 'search_notes') {
                         displayNotes(data.notes);
                     }
+                    else if (data.action === 'delete_all_notes') {
+                        handleDeleteAllNotesResponse(data);
+                    }
                     break;
                     
                 case 'error':
@@ -793,6 +922,20 @@
                     
                 default:
                     console.log('Unhandled message:', data);
+            }
+        }
+
+        function handleDeleteAllNotesResponse(data) {
+            const btn = document.getElementById('delete-all-notes');
+            btn.innerHTML = 'Delete All Notes';
+            btn.disabled = false;
+
+            if (data.status === 'success') {
+                showAlert(data.message, 'success');
+                loadNotes();
+                hideModal(profileModal);
+            } else {
+                showAlert(data.message, 'error');
             }
         }
 
@@ -838,13 +981,15 @@
             userName.textContent = currentUser.username;
             createNoteBtn.style.display = 'block';
             searchInput.disabled = false;
+            profileBtn.style.display = 'flex';
         }
 
         function updateUIAfterLogout() {
             authButtons.style.display = 'block';
             userInfo.style.display = 'none';
-            createNoteBtn.style.display = 'none';
+            createNoteBtn.style.display = 'block';
             searchInput.disabled = true;
+            profileBtn.style.display = 'none';
         }
 
         function logout() {
@@ -857,12 +1002,15 @@
             currentUser = null;
             localStorage.removeItem('currentUser');
             updateUIAfterLogout();
-            notesContainer.innerHTML = '<p>Disconnected. Please login.</p>';
+            notesContainer.innerHTML = '<p>Disconnected. Please login to view your notes.</p>';
             showAlert('Logged out successfully', 'success');
         }
 
         function loadNotes() {
-            if (!currentUser) return;
+            if (!currentUser) {
+                notesContainer.innerHTML = '<p>Please login to view your notes.</p>';
+                return;
+            }
             
             notesContainer.innerHTML = '<div class="loading"><div class="spinner"></div> Loading notes...</div>';
             sendRequest('get_notes', {
@@ -872,7 +1020,10 @@
 
         function searchNotes() {
             const query = searchInput.value.trim();
-            if (!currentUser) return;
+            if (!currentUser) {
+                showAlert('Please login to search notes', 'error');
+                return;
+            }
 
             if (query === '') {
                 loadNotes();
@@ -921,6 +1072,12 @@
             submitBtn.disabled = true;
 
             if (noteId) {
+                if (!currentUser) {
+                    showAlert('You need to login to edit notes', 'error');
+                    resetButtons();
+                    return;
+                }
+                
                 sendRequest('update_note', {
                     user_id: currentUser.id,
                     note_id: noteId,
@@ -932,13 +1089,18 @@
                     }
                 });
             } else {
-                sendRequest('create_note', {
-                    user_id: currentUser.id,
+                const noteData = {
                     title,
                     content,
                     note_type: noteType,
                     encrypt
-                });
+                };
+                
+                if (currentUser) {
+                    noteData.user_id = currentUser.id;
+                }
+                
+                sendRequest('create_note', noteData);
             }
         }
 
@@ -949,7 +1111,9 @@
 
             if (data.status === 'success') {
                 hideModal(noteModal);
-                loadNotes();
+                if (currentUser) {
+                    loadNotes();
+                }
                 showAlert('Note created successfully', 'success');
             } else {
                 showAlert(data.message || 'Failed to create note', 'error');
@@ -997,14 +1161,19 @@
                 return;
             }
 
-            if (notes.length === 0) {
-                notesContainer.innerHTML = '<p>No notes found. Create your first note!</p>';
+            // Filter out notes without user_id (anonymous notes)
+            const userNotes = currentUser ? notes.filter(note => note.user_id === currentUser.id) : [];
+            
+            if (userNotes.length === 0) {
+                notesContainer.innerHTML = currentUser 
+                    ? '<p>No notes found. Create your first note!</p>'
+                    : '<p>Please login to view your notes.</p>';
                 return;
             }
 
             notesContainer.innerHTML = '';
             
-            notes.forEach(note => {
+            userNotes.forEach(note => {
                 const noteCard = document.createElement('div');
                 noteCard.className = 'note-card';
                 
@@ -1045,6 +1214,11 @@
 
             document.querySelectorAll('.delete-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
+                    if (!currentUser) {
+                        showAlert('You need to login to delete notes', 'error');
+                        return;
+                    }
+                    
                     const noteId = btn.getAttribute('data-id');
                     if (confirm('Are you sure you want to delete this note?')) {
                         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
