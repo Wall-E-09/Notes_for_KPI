@@ -2,11 +2,10 @@ import asyncio
 import websockets
 import json
 from datetime import datetime
-from bson import json_util
+from bson import json_util, ObjectId
 from database import Database
 from utils import Encryption
 from config import Config
-from bson import ObjectId
 
 class NoteServer:
     def __init__(self):
@@ -67,6 +66,8 @@ class NoteServer:
             return await self.handle_search_notes(data)
         elif action == 'logout':
             return await self.handle_logout(data)
+        elif action == 'init' or action == 'restore_session':
+            return {"status": "connected"}
         else:
             return {"status": "error", "message": "Unknown action"}
 
@@ -76,18 +77,26 @@ class NoteServer:
         
         user = self.db.get_user_by_email(email)
         if not user:
-            return {"status": "error", "message": "User not found", "action": "login"}
+            return {
+                "status": "error",
+                "action": "login",
+                "message": "User not found"
+            }
         
         if user['password'] != password:
-            return {"status": "error", "message": "Invalid password", "action": "login"}
+            return {
+                "status": "error",
+                "action": "login",
+                "message": "Invalid password"
+            }
         
         user_id = str(user['_id'])
         self.sessions[user_id] = client_id
         
         return {
             "status": "success",
+            "action": "login",
             "message": "Login successful",
-            "action": "login",  # Додаємо action для клієнта
             "user": {
                 "id": user_id,
                 "username": user['username'],
@@ -105,11 +114,16 @@ class NoteServer:
             self.db.create_settings(str(result.inserted_id))
             return {
                 "status": "success",
+                "action": "register",
                 "message": "User created successfully",
                 "user_id": str(result.inserted_id)
             }
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {
+                "status": "error",
+                "action": "register",
+                "message": str(e)
+            }
 
     async def handle_create_note(self, data):
         user_id = data.get('user_id')
@@ -125,11 +139,16 @@ class NoteServer:
             result = self.db.create_note(user_id, title, content, note_type, encrypt)
             return {
                 "status": "success",
+                "action": "create_note",
                 "message": "Note created successfully",
                 "note_id": str(result.inserted_id)
             }
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {
+                "status": "error",
+                "action": "create_note",
+                "message": str(e)
+            }
 
     async def handle_get_notes(self, data):
         user_id = data.get('user_id')
@@ -137,15 +156,14 @@ class NoteServer:
         
         notes_list = []
         for note in notes:
-            # Переконайтеся, що всі обов'язкові поля присутні
             note_data = {
-                '_id': str(note['_id']),
-                'user_id': note.get('user_id', ''),
-                'title': note.get('title', 'Untitled'),
-                'content': note.get('content', ''),
-                'note_type': note.get('note_type', 'text'),
-                'time_creation': note.get('time_creation', datetime.now()).isoformat(),
-                'is_encrypted': note.get('is_encrypted', False)
+                "_id": str(note['_id']),
+                "user_id": note.get('user_id', ''),
+                "title": note.get('title', 'Untitled'),
+                "content": note.get('content', ''),
+                "note_type": note.get('note_type', 'text'),
+                "time_creation": note.get('time_creation', datetime.now()).isoformat(),
+                "is_encrypted": note.get('is_encrypted', False)
             }
             
             if note_data['is_encrypted']:
@@ -153,13 +171,13 @@ class NoteServer:
                     note_data['content'] = Encryption.decrypt(note_data['content'])
                 except Exception as e:
                     print(f"Error decrypting note {note_data['_id']}: {str(e)}")
-                    note_data['content'] = '[Encrypted content - decryption failed]'
+                    note_data['content'] = '[Encrypted content - please edit to view]'
             
             notes_list.append(note_data)
         
         return {
             "status": "success",
-            "action": "get_notes",  # Додаємо action для клієнта
+            "action": "get_notes",
             "notes": notes_list
         }
 
@@ -168,7 +186,17 @@ class NoteServer:
         note_id = data.get('note_id')
         update_data = data.get('update_data', {})
         
-        # Додаємо час оновлення
+        if not ObjectId.is_valid(note_id):
+            return {
+                "status": "error",
+                "action": "update_note",
+                "message": "Invalid note ID"
+            }
+        
+        if 'content' in update_data and update_data.get('encrypt', False):
+            update_data['content'] = Encryption.encrypt(update_data['content'])
+            update_data['is_encrypted'] = True
+        
         update_data['time_update'] = datetime.now()
         
         try:
@@ -195,6 +223,13 @@ class NoteServer:
     async def handle_delete_note(self, data):
         user_id = data.get('user_id')
         note_id = data.get('note_id')
+        
+        if not ObjectId.is_valid(note_id):
+            return {
+                "status": "error",
+                "action": "delete_note",
+                "message": "Invalid note ID"
+            }
         
         try:
             result = self.db.delete_note(note_id, user_id)
@@ -225,15 +260,27 @@ class NoteServer:
         
         notes_list = []
         for note in notes:
-            note['_id'] = str(note['_id'])
-            if note.get('is_encrypted'):
-                note['content'] = Encryption.decrypt(note['content'])
-            note['time_creation'] = note['time_creation'].isoformat()
-            note['time_update'] = note['time_update'].isoformat()
-            notes_list.append(note)
+            note_data = {
+                "_id": str(note['_id']),
+                "user_id": note.get('user_id', ''),
+                "title": note.get('title', 'Untitled'),
+                "content": note.get('content', ''),
+                "note_type": note.get('note_type', 'text'),
+                "time_creation": note.get('time_creation', datetime.now()).isoformat(),
+                "is_encrypted": note.get('is_encrypted', False)
+            }
+            
+            if note_data['is_encrypted']:
+                try:
+                    note_data['content'] = Encryption.decrypt(note_data['content'])
+                except:
+                    note_data['content'] = '[Encrypted content - please edit to view]'
+            
+            notes_list.append(note_data)
         
         return {
             "status": "success",
+            "action": "search_notes",
             "notes": notes_list
         }
 
@@ -241,7 +288,11 @@ class NoteServer:
         user_id = data.get('user_id')
         if user_id in self.sessions:
             self.sessions.pop(user_id)
-        return {"status": "success", "message": "Logged out"}
+        return {
+            "status": "success",
+            "action": "logout",
+            "message": "Logged out"
+        }
 
     async def run(self):
         start_server = websockets.serve(

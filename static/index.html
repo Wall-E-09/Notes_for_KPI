@@ -362,6 +362,10 @@
             animation: spin 1s ease-in-out infinite;
         }
 
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         .alert {
             position: fixed;
             top: 20px;
@@ -381,10 +385,6 @@
         @keyframes slideIn {
             from { transform: translateX(100%); }
             to { transform: translateX(0); }
-        }
-            
-        @keyframes spin {
-            to { transform: rotate(360deg); }
         }
 
         @media (max-width: 768px) {
@@ -421,7 +421,7 @@
                 <div class="search-box">
                     <input type="text" class="search-input" id="search-input" placeholder="Search notes...">
                 </div>
-                <button class="create-note-btn" id="create-note-btn">
+                <button class="create-note-btn" id="create-note-btn" style="display: none;">
                     <i class="fas fa-plus"></i> Create Note
                 </button>
                 <div id="notes-filter">
@@ -581,6 +581,21 @@
         function init() {
             setupEventListeners();
             connectWebSocket();
+            checkSavedUser();
+        }
+
+        function checkSavedUser() {
+            const savedUser = localStorage.getItem('currentUser');
+            if (savedUser) {
+                try {
+                    currentUser = JSON.parse(savedUser);
+                    updateUIAfterLogin();
+                    sendInitMessage();
+                } catch (e) {
+                    console.error('Error parsing saved user:', e);
+                    localStorage.removeItem('currentUser');
+                }
+            }
         }
 
         function setupEventListeners() {
@@ -592,7 +607,7 @@
             // Create note button
             createNoteBtn.addEventListener('click', () => {
                 if (!currentUser) {
-                    alert('Please login to create notes');
+                    showAlert('Please login to create notes', 'error');
                     return;
                 }
                 showCreateNoteModal();
@@ -615,56 +630,64 @@
             noteForm.addEventListener('submit', handleNoteSubmit);
         }
 
-        function checkSession() {
-            if (currentUser) {
-                console.log('Restoring session for user:', currentUser.id);
-                sendRequest('restore_session', {
-                    user_id: currentUser.id
+        function connectWebSocket() {
+            try {
+                socket = new WebSocket(`ws://${WS_HOST}:${WS_PORT}`);
+
+                socket.addEventListener('open', (event) => {
+                    console.log('WebSocket connected');
+                    updateConnectionStatus(true);
+                    sendInitMessage();
                 });
-                loadNotes();
+
+                socket.addEventListener('message', (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('Received message:', data);
+                        handleWebSocketMessage(data);
+                    } catch (e) {
+                        console.error('Error parsing message:', e);
+                    }
+                });
+
+                socket.addEventListener('close', (event) => {
+                    console.log('WebSocket disconnected');
+                    updateConnectionStatus(false);
+                    setTimeout(connectWebSocket, 3000);
+                });
+
+                socket.addEventListener('error', (event) => {
+                    console.error('WebSocket error:', event);
+                    updateConnectionStatus(false);
+                });
+            } catch (e) {
+                console.error('WebSocket init error:', e);
+                updateConnectionStatus(false);
             }
         }
 
-        // Викликати при завантаженні сторінки
-        window.addEventListener('load', () => {
-            // Спробуємо відновити користувача з localStorage
-            const savedUser = localStorage.getItem('currentUser');
-            if (savedUser) {
-                try {
-                    currentUser = JSON.parse(savedUser);
-                    updateUIAfterLogin();
-                    checkSession();
-                } catch (e) {
-                    console.error('Failed to parse saved user:', e);
-                    localStorage.removeItem('currentUser');
+        function updateConnectionStatus(connected) {
+            if (connected) {
+                if (currentUser) {
+                    loadNotes();
+                } else {
+                    notesContainer.innerHTML = '<p>Connected. Please login.</p>';
                 }
+            } else {
+                notesContainer.innerHTML = `
+                    <div class="connection-error">
+                        <p>Disconnected from server. Trying to reconnect...</p>
+                        <div class="spinner"></div>
+                        <button id="retry-connect">Retry Now</button>
+                    </div>
+                `;
+                document.getElementById('retry-connect').addEventListener('click', connectWebSocket);
             }
-        });
-
-        function connectWebSocket() {
-            socket = new WebSocket(`ws://${WS_HOST}:${WS_PORT}`);
-
-            socket.addEventListener('open', (event) => {
-                console.log('WebSocket connected');
-                sendInitMessage();
-            });
-
-            socket.addEventListener('message', (event) => {
-                const data = JSON.parse(event.data);
-                handleWebSocketMessage(data);
-            });
-
-            socket.addEventListener('close', (event) => {
-                console.log('WebSocket disconnected');
-                setTimeout(connectWebSocket, 3000); // Reconnect after 3 seconds
-            });
-
-            socket.addEventListener('error', (event) => {
-                console.error('WebSocket error:', event);
-            });
         }
 
         function sendInitMessage() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
             const message = {
                 client_id: clientId,
                 action: 'init'
@@ -678,43 +701,9 @@
             socket.send(JSON.stringify(message));
         }
 
-        function handleWebSocketMessage(data) {
-            console.log('Received message:', data); // Додайте для дебагу
-            
-            if (data.status) {
-                switch (data.status) {
-                    case 'connected':
-                        console.log('WebSocket connection established');
-                        if (currentUser) loadNotes();
-                        break;
-                        
-                    case 'success':
-                        if (data.action === 'login') {
-                            handleLoginResponse(data);
-                        } else if (data.action === 'get_notes') {
-                            // Додаємо явну обробку для отримання нотаток
-                            if (data.notes && Array.isArray(data.notes)) {
-                                displayNotes(data.notes);
-                            } else {
-                                console.error('Invalid notes data:', data);
-                                showAlert('Failed to load notes', 'error');
-                            }
-                        }
-                        // ... інші випадки ...
-                        break;
-                        
-                    default:
-                        console.log('Unhandled message:', data);
-                }
-            }
-        }
-
         function sendRequest(action, data = {}) {
-            console.log('Sending request:', {action, ...data});
-            
             if (!socket || socket.readyState !== WebSocket.OPEN) {
-                console.error('WebSocket is not connected');
-                showAlert('Connection lost. Please refresh the page.', 'error');
+                showAlert('No connection to server', 'error');
                 return false;
             }
 
@@ -724,104 +713,24 @@
                 ...data
             };
 
-            try {
-                socket.send(JSON.stringify(request));
-                return true;
-            } catch (e) {
-                console.error('Error sending request:', e);
-                showAlert('Failed to send request', 'error');
-                return false;
-            }
+            console.log('Sending request:', request);
+            socket.send(JSON.stringify(request));
+            return true;
         }
 
-       async function handleLogin(e) {
+        function handleLogin(e) {
             e.preventDefault();
-            
-            const email = document.getElementById('login-email').value.trim();
+            const email = document.getElementById('login-email').value;
             const password = document.getElementById('login-password').value;
-            
-            if (!email || !password) {
-                showAlert('Будь ласка, заповніть всі поля', 'error');
-                return;
-            }
 
             const submitBtn = loginForm.querySelector('button[type="submit"]');
-            const originalHtml = submitBtn.innerHTML;
-            
-            // Блокуємо кнопку
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Вхід...';
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Logging in...';
             submitBtn.disabled = true;
 
-            try {
-                // Відправляємо запит
-                const response = await sendLoginRequest(email, password);
-                
-                if (response.status === 'success') {
-                    // Примусове оновлення інтерфейсу
-                    await handleSuccessfulLogin(response);
-                } else {
-                    showAlert(response.message || 'Помилка входу', 'error');
-                }
-            } catch (error) {
-                console.error('Помилка входу:', error);
-                showAlert('Сталася помилка під час входу', 'error');
-            } finally {
-                // Відновлюємо кнопку в будь-якому випадку
-                submitBtn.innerHTML = originalHtml;
-                submitBtn.disabled = false;
-            }
-        }
-
-        async function sendLoginRequest(email, password) {
-            return new Promise((resolve) => {
-                const requestId = generateRequestId();
-                
-                // Тимчасовий обробник для відповіді
-                const tempHandler = (data) => {
-                    if (data.request_id === requestId) {
-                        socket.removeEventListener('message', tempHandler);
-                        resolve(data);
-                    }
-                };
-                
-                socket.addEventListener('message', tempHandler);
-                
-                sendRequest('login', {
-                    email,
-                    password,
-                    request_id: requestId
-                });
+            sendRequest('login', {
+                email,
+                password
             });
-        }
-
-        async function handleSuccessfulLogin(response) {
-            // Зберігаємо користувача
-            currentUser = response.user;
-            localStorage.setItem('currentUser', JSON.stringify(currentUser));
-            
-            // Оновлюємо інтерфейс
-            authButtons.style.display = 'none';
-            userInfo.style.display = 'flex';
-            userAvatar.textContent = currentUser.username.charAt(0).toUpperCase();
-            userName.textContent = currentUser.username;
-            createNoteBtn.style.display = 'block';
-            
-            // Закриваємо модальне вікно
-            const loginModal = document.getElementById('login-modal');
-            loginModal.style.display = 'none';
-            document.body.classList.remove('modal-open');
-            
-            // Очищаємо форму
-            loginForm.reset();
-            
-            // Завантажуємо нотатки
-            await loadNotes();
-            
-            // Повідомлення про успіх
-            showAlert('Вхід успішний!', 'success');
-            
-            // Примусовий ререндер
-            document.body.clientWidth;
         }
 
         function handleRegister(e) {
@@ -832,9 +741,13 @@
             const confirmPassword = document.getElementById('register-confirm-password').value;
 
             if (password !== confirmPassword) {
-                alert('Passwords do not match');
+                showAlert('Passwords do not match', 'error');
                 return;
             }
+
+            const submitBtn = registerForm.querySelector('button[type="submit"]');
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registering...';
+            submitBtn.disabled = true;
 
             sendRequest('register', {
                 username,
@@ -843,62 +756,63 @@
             });
         }
 
-       function handleLoginResponse(data) {
-            console.log('Handling login response:', data); // Додаткове логування
-            
+        function handleWebSocketMessage(data) {
+            if (!data || !data.status) {
+                console.log('Unknown message type:', data);
+                return;
+            }
+
+            switch (data.status) {
+                case 'connected':
+                    console.log('WebSocket connection established');
+                    if (currentUser) loadNotes();
+                    break;
+                    
+                case 'success':
+                    if (data.action === 'login') {
+                        handleLoginResponse(data);
+                    } else if (data.action === 'register') {
+                        handleRegisterResponse(data);
+                    } else if (data.action === 'get_notes') {
+                        displayNotes(data.notes);
+                    } else if (data.action === 'create_note') {
+                        handleCreateNoteResponse(data);
+                    } else if (data.action === 'update_note') {
+                        handleUpdateNoteResponse(data);
+                    } else if (data.action === 'delete_note') {
+                        handleDeleteNoteResponse(data);
+                    } else if (data.action === 'search_notes') {
+                        displayNotes(data.notes);
+                    }
+                    break;
+                    
+                case 'error':
+                    showAlert(data.message || 'An error occurred', 'error');
+                    resetButtons();
+                    break;
+                    
+                default:
+                    console.log('Unhandled message:', data);
+            }
+        }
+
+        function handleLoginResponse(data) {
             const submitBtn = loginForm.querySelector('button[type="submit"]');
             submitBtn.innerHTML = 'Login';
             submitBtn.disabled = false;
 
             if (data.status === 'success' && data.user) {
-                console.log('Login successful, user data:', data.user);
-                
-                // Зберігаємо користувача
                 currentUser = data.user;
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
                 
-                // Оновлюємо інтерфейс
                 updateUIAfterLogin();
-                
-                // Закриваємо модальне вікно
                 hideModal(loginModal);
-                
-                // Очищаємо форму
                 loginForm.reset();
-                
-                // Завантажуємо нотатки
                 loadNotes();
-                
-                // Показуємо повідомлення
                 showAlert('Login successful!', 'success');
-                
-                // Додатковий лог для перевірки
-                console.log('UI should be updated now');
             } else {
-                console.error('Login failed:', data.message);
                 showAlert(data.message || 'Login failed', 'error');
             }
-        }
-
-        function checkUIState() {
-            console.log('Поточний стан:');
-            console.log('Користувач:', currentUser);
-            console.log('Відображення authButtons:', authButtons.style.display);
-            console.log('Відображення userInfo:', userInfo.style.display);
-            console.log('Стан WebSocket:', socket?.readyState);
-        }
-
-        // Викликати після логіну
-        checkUIState();
-
-        function showAlert(message, type) {
-            const alert = document.createElement('div');
-            alert.className = `alert alert-${type}`;
-            alert.textContent = message;
-            document.body.appendChild(alert);
-            
-            setTimeout(() => {
-                alert.remove();
-            }, 3000);
         }
 
         function handleRegisterResponse(data) {
@@ -908,75 +822,49 @@
 
             if (data.status === 'success') {
                 hideModal(registerModal);
+                registerForm.reset();
                 showAlert('Registration successful. Please login.', 'success');
             } else {
-                // Спеціальна обробка для помилки дубліката email
-                const errorMsg = data.message.includes('duplicate key') 
-                    ? 'This email is already registered' 
-                    : data.message || 'Registration failed';
-                showAlert(errorMsg, 'error');
+                showAlert(data.message || 'Registration failed', 'error');
             }
-        }
-
-        function logout() {
-            localStorage.removeItem('currentUser');
-            sendRequest('logout', {
-                user_id: currentUser.id
-            });
-            currentUser = null;
-            updateUIAfterLogout();
-            notesContainer.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
         }
 
         function updateUIAfterLogin() {
-            if (!currentUser) {
-                console.error('No current user!');
-                return;
-            }
-
-            console.log('Updating UI for user:', currentUser.username);
+            if (!currentUser) return;
             
-            try {
-                // Перевіряємо чи елементи існують
-                if (!authButtons || !userInfo || !userAvatar || !userName || !createNoteBtn) {
-                    console.error('Missing DOM elements:', {
-                        authButtons,
-                        userInfo,
-                        userAvatar,
-                        userName,
-                        createNoteBtn
-                    });
-                    return;
-                }
-
-                // Оновлюємо інтерфейс
-                authButtons.style.display = 'none';
-                userInfo.style.display = 'flex';
-                userAvatar.textContent = currentUser.username.charAt(0).toUpperCase();
-                userName.textContent = currentUser.username;
-                createNoteBtn.style.display = 'block';
-                
-                console.log('UI updated successfully');
-            } catch (e) {
-                console.error('Error updating UI:', e);
-            }
+            authButtons.style.display = 'none';
+            userInfo.style.display = 'flex';
+            userAvatar.textContent = currentUser.username.charAt(0).toUpperCase();
+            userName.textContent = currentUser.username;
+            createNoteBtn.style.display = 'block';
+            searchInput.disabled = false;
         }
 
         function updateUIAfterLogout() {
             authButtons.style.display = 'block';
             userInfo.style.display = 'none';
             createNoteBtn.style.display = 'none';
+            searchInput.disabled = true;
+        }
+
+        function logout() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                sendRequest('logout', {
+                    user_id: currentUser.id
+                });
+            }
+            
+            currentUser = null;
+            localStorage.removeItem('currentUser');
+            updateUIAfterLogout();
+            notesContainer.innerHTML = '<p>Disconnected. Please login.</p>';
+            showAlert('Logged out successfully', 'success');
         }
 
         function loadNotes() {
-            if (!currentUser) {
-                console.error('Cannot load notes: no current user');
-                return;
-            }
-
-            console.log('Loading notes for user:', currentUser.id);
+            if (!currentUser) return;
+            
             notesContainer.innerHTML = '<div class="loading"><div class="spinner"></div> Loading notes...</div>';
-
             sendRequest('get_notes', {
                 user_id: currentUser.id
             });
@@ -984,11 +872,14 @@
 
         function searchNotes() {
             const query = searchInput.value.trim();
+            if (!currentUser) return;
+
             if (query === '') {
                 loadNotes();
                 return;
             }
 
+            notesContainer.innerHTML = '<div class="loading"><div class="spinner"></div> Searching...</div>';
             sendRequest('search_notes', {
                 user_id: currentUser.id,
                 query
@@ -1007,20 +898,11 @@
         }
 
         function showEditNoteModal(note) {
-            console.log('Editing note:', note); // Додамо логування
             document.getElementById('note-modal-title').textContent = 'Edit Note';
-            document.getElementById('note-id').value = note._id; // Переконайтеся, що використовуємо _id
+            document.getElementById('note-id').value = note._id;
             document.getElementById('note-title').value = note.title;
             document.getElementById('note-content').value = note.content;
-            
-            const typeRadios = document.getElementsByName('note-type');
-            for (let radio of typeRadios) {
-                if (radio.value === note.note_type) {
-                    radio.checked = true;
-                    break;
-                }
-            }
-            
+            document.querySelector(`input[name="note-type"][value="${note.note_type}"]`).checked = true;
             document.getElementById('note-encrypt').checked = note.is_encrypted || false;
             document.getElementById('save-note').textContent = 'Update';
             showModal(noteModal);
@@ -1028,19 +910,17 @@
 
         function handleNoteSubmit(e) {
             e.preventDefault();
-            
             const noteId = document.getElementById('note-id').value;
             const title = document.getElementById('note-title').value;
             const content = document.getElementById('note-content').value;
             const noteType = document.querySelector('input[name="note-type"]:checked').value;
             const encrypt = document.getElementById('note-encrypt').checked;
-            
+
             const submitBtn = noteForm.querySelector('button[type="submit"]');
             submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
             submitBtn.disabled = true;
 
             if (noteId) {
-                // Оновлення існуючої нотатки
                 sendRequest('update_note', {
                     user_id: currentUser.id,
                     note_id: noteId,
@@ -1052,7 +932,6 @@
                     }
                 });
             } else {
-                // Створення нової нотатки
                 sendRequest('create_note', {
                     user_id: currentUser.id,
                     title,
@@ -1064,58 +943,56 @@
         }
 
         function handleCreateNoteResponse(data) {
+            const submitBtn = noteForm.querySelector('button[type="submit"]');
+            submitBtn.innerHTML = 'Save';
+            submitBtn.disabled = false;
+
             if (data.status === 'success') {
                 hideModal(noteModal);
                 loadNotes();
-                alert('Note created successfully');
+                showAlert('Note created successfully', 'success');
             } else {
-                alert(data.message);
+                showAlert(data.message || 'Failed to create note', 'error');
             }
         }
 
         function handleUpdateNoteResponse(data) {
             const submitBtn = noteForm.querySelector('button[type="submit"]');
-            
-            // Завжди відновлюємо кнопку
-            submitBtn.innerHTML = 'Update';
+            submitBtn.innerHTML = 'Save';
             submitBtn.disabled = false;
 
             if (data.status === 'success') {
-                // Закриваємо модальне вікно
                 hideModal(noteModal);
-                // Оновлюємо список нотаток
                 loadNotes();
-                // Показуємо повідомлення про успіх
-                showAlert('Note updated successfully!', 'success');
+                showAlert('Note updated successfully', 'success');
             } else {
                 showAlert(data.message || 'Failed to update note', 'error');
             }
         }
 
         function handleDeleteNoteResponse(data) {
+            resetButtons();
+            
             if (data.status === 'success') {
-                // Не просто показуємо повідомлення, а й одразу оновлюємо список
-                showAlert('Note deleted successfully!', 'success');
                 loadNotes();
+                showAlert('Note deleted successfully', 'success');
             } else {
                 showAlert(data.message || 'Failed to delete note', 'error');
             }
         }
 
-        function deleteNote(noteId) {
-            if (confirm('Are you sure you want to delete this note?')) {
-                sendRequest('delete_note', {
-                    user_id: currentUser.id,
-                    note_id: noteId
-                });
-            }
+        function resetButtons() {
+            document.querySelectorAll('button').forEach(btn => {
+                if (btn.innerHTML.includes('fa-spinner')) {
+                    const originalText = btn.textContent;
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            });
         }
 
         function displayNotes(notes) {
-            console.log('Displaying notes:', notes); // Додайте для дебагу
-            
             if (!notes || !Array.isArray(notes)) {
-                console.error('Invalid notes data:', notes);
                 notesContainer.innerHTML = '<p>Error loading notes. Please try again.</p>';
                 return;
             }
@@ -1128,16 +1005,9 @@
             notesContainer.innerHTML = '';
             
             notes.forEach(note => {
-                // Перевірка наявності обов'язкових полів
-                if (!note._id || !note.title) {
-                    console.error('Invalid note format:', note);
-                    return;
-                }
-
                 const noteCard = document.createElement('div');
                 noteCard.className = 'note-card';
                 
-                // Форматування дати
                 const createdDate = note.time_creation ? new Date(note.time_creation).toLocaleString() : 'Unknown date';
                 
                 noteCard.innerHTML = `
@@ -1151,8 +1021,12 @@
                     <div class="note-footer">
                         <div>Created: ${createdDate}</div>
                         <div class="note-actions">
-                            <button class="edit-btn" data-id="${note._id}">Edit</button>
-                            <button class="delete-btn" data-id="${note._id}">Delete</button>
+                            <button class="edit-btn" data-id="${note._id}">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="delete-btn" data-id="${note._id}">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
                         </div>
                     </div>
                 `;
@@ -1160,88 +1034,55 @@
                 notesContainer.appendChild(noteCard);
             });
 
-            // Додайте обробники подій для кнопок
-            addNoteEventListeners();
-        }
-        function addNoteEventListeners() {
+            // Add event listeners
             document.querySelectorAll('.edit-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
+                btn.addEventListener('click', () => {
                     const noteId = btn.getAttribute('data-id');
-                    console.log('Edit note clicked:', noteId);
-                    // Тут додайте логіку редагування
+                    const note = notes.find(n => n._id === noteId);
+                    if (note) showEditNoteModal(note);
                 });
             });
 
             document.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
+                btn.addEventListener('click', () => {
                     const noteId = btn.getAttribute('data-id');
-                    console.log('Delete note clicked:', noteId);
-                    // Тут додайте логіку видалення
-                });
-            });
-        }
-
-            document.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const noteId = e.currentTarget.getAttribute('data-id');
-                    console.log('Delete note clicked:', noteId);
-                    
                     if (confirm('Are you sure you want to delete this note?')) {
-                        // Блокуємо кнопку
-                        const deleteBtn = e.currentTarget;
-                        deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
-                        deleteBtn.disabled = true;
-                        
-                        // Відправляємо запит
-                        const success = sendRequest('delete_note', {
+                        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+                        btn.disabled = true;
+                        sendRequest('delete_note', {
                             user_id: currentUser.id,
                             note_id: noteId
                         });
-                        
-                        if (!success) {
-                            // Якщо не вдалося відправити запит
-                            deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete';
-                            deleteBtn.disabled = false;
-                        }
                     }
                 });
             });
-        
-
-        async function fetchNoteDetails(noteId) {
-            // Тут можна реалізувати запит до сервера за деталями нотатки
-            // Поки що використовуємо дані зі списку
-            const noteElement = document.querySelector(`.note-card [data-id="${noteId}"]`).closest('.note-card');
-            
-            return {
-                _id: noteId,
-                title: noteElement.querySelector('.note-title').textContent.trim(),
-                content: noteElement.querySelector('.note-content').textContent,
-                note_type: noteElement.querySelector('.note-type').textContent.trim(),
-                is_encrypted: noteElement.querySelector('.encrypted-badge') !== null
-            };
         }
-                
 
         function showModal(modal) {
+            if (!modal) return;
             modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
         }
 
         function hideModal(modal) {
             if (!modal) return;
-            
-            // Додаткові способи закриття
-            modal.classList.remove('show');
-            modal.setAttribute('aria-hidden', 'true');
             modal.style.display = 'none';
-            
-            // Видаляємо backdrop
-            const backdrops = document.querySelectorAll('.modal-backdrop');
-            backdrops.forEach(backdrop => backdrop.remove());
-            
-            // Відновлюємо прокрутку
             document.body.style.overflow = 'auto';
-            document.body.style.paddingRight = '0';
+        }
+
+        function showAlert(message, type) {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.innerHTML = `
+                <i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
+                ${message}
+            `;
+            document.body.appendChild(alert);
+            
+            setTimeout(() => {
+                alert.style.opacity = '0';
+                setTimeout(() => alert.remove(), 300);
+            }, 3000);
         }
 
         function generateClientId() {
@@ -1260,55 +1101,6 @@
                     func.apply(this, args);
                 }, wait);
             };
-        }
-        function connectWebSocket() {
-            try {
-                socket = new WebSocket(`ws://${WS_HOST}:${WS_PORT}`);
-
-                socket.addEventListener('open', (event) => {
-                    console.log('WebSocket connected');
-                    notesContainer.innerHTML = '<p>Connected to server. Ready to work!</p>';
-                    sendInitMessage();
-                });
-
-                socket.addEventListener('message', (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        handleWebSocketMessage(data);
-                    } catch (e) {
-                        console.error('Error parsing message:', e);
-                    }
-                });
-
-                socket.addEventListener('close', (event) => {
-                    console.log('WebSocket disconnected');
-                    notesContainer.innerHTML = `
-                        <div class="connection-error">
-                            <p>Disconnected from server. Trying to reconnect...</p>
-                            <div class="spinner"></div>
-                        </div>
-                    `;
-                    setTimeout(connectWebSocket, 3000);
-                });
-
-                socket.addEventListener('error', (event) => {
-                    console.error('WebSocket error:', event);
-                    notesContainer.innerHTML = `
-                        <div class="connection-error">
-                            <p>Failed to connect to server. Please check:</p>
-                            <ul>
-                                <li>Is server running? (python server.py)</li>
-                                <li>Check host and port (${WS_HOST}:${WS_PORT})</li>
-                                <li>No firewall blocking</li>
-                            </ul>
-                            <button id="retry-connect">Retry Connection</button>
-                        </div>
-                    `;
-                    document.getElementById('retry-connect').addEventListener('click', connectWebSocket);
-                });
-            } catch (e) {
-                console.error('WebSocket init error:', e);
-            }
         }
     </script>
 </body>
