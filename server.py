@@ -6,6 +6,7 @@ from bson import json_util, ObjectId
 from database import Database
 from utils import Encryption
 from config import Config
+from models import Notes
 
 class NoteServer:
     def __init__(self):
