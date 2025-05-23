@@ -6,7 +6,6 @@ import time
 async def test_server():
     try:
         async with websockets.connect("ws://localhost:8765") as websocket:
-            # Тест створення нотатки
             note_data = {
                 "action": "create_note",
                 "type": "text",
@@ -17,7 +16,6 @@ async def test_server():
             response = await websocket.recv()
             print("Create note response:", response)
 
-            # Тест отримання нотаток
             get_notes = {
                 "action": "get_notes",
                 "owner": "test_user"

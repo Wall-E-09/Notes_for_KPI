@@ -199,7 +199,7 @@ class NoteServer:
     async def handle_update_note(self, data):
         user_id = data.get('user_id')
         note_id = data.get('note_id')
-        title = data.get('title')  # Додаємо отримання окремих полів
+        title = data.get('title')
         content = data.get('content')
         
         if not ObjectId.is_valid(note_id):
@@ -208,7 +208,7 @@ class NoteServer:
         update_data = {
             "title": data.get('title'),
             "content": data.get('content'),
-            "note_type": data.get('note_type'),  # Додаємо оновлення типу
+            "note_type": data.get('note_type'),
             "time_update": datetime.now()
         }
         if data.get('note_type') == 'image' and data.get('attachment'):
@@ -216,7 +216,6 @@ class NoteServer:
                 update_data['attachment'] = json.loads(data.get('attachment'))
             except:
                 pass
-        # Якщо змінюємо на текстовий тип - видаляємо вкладення
         elif data.get('note_type') == 'text':
             update_data['attachment'] = None
 
@@ -229,7 +228,6 @@ class NoteServer:
             if result.modified_count == 0:
                 return {"status": "error", "message": "Note not found or not updated"}
             
-            # Повертаємо оновлену нотатку
             updated_note = Notes.find_one({"_id": ObjectId(note_id)})
             return {
                 "status": "success",
