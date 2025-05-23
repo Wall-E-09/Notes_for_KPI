@@ -1340,7 +1340,7 @@
 
             try {
                 let finalContent = content;
-                let attachments = []; // Завжди ініціалізуємо масив
+                let attachments = [];
 
                 // Обробка за типом нотатки
                 switch(noteType) {
@@ -1356,15 +1356,17 @@
                         break;
                         
                     case 'image':
-                        if (currentFiles.length > 0) {
-                            finalContent = `${currentFiles.length} file(s) attached`;
-                            attachments = await Promise.all(
-                                currentFiles.map(async file => ({
+                        const fileInput = document.getElementById('file-input');
+                        if (fileInput.files.length > 0) {
+                            finalContent = `${fileInput.files.length} file(s) attached`;
+                            for (let i = 0; i < fileInput.files.length; i++) {
+                                const file = fileInput.files[i];
+                                attachments.push({
                                     type: file.type.startsWith('image/') ? 'image' : 'file',
                                     name: file.name,
                                     data: await fileToBase64(file)
-                                }))
-                            );
+                                });
+                            }
                         }
                         break;
                 }
@@ -1372,12 +1374,16 @@
                 // Готуємо дані для відправки
                 const requestData = {
                     user_id: currentUser.id,
-                    note_id: noteId || undefined,
                     title: title,
                     content: finalContent,
                     note_type: noteType,
                     encrypt: encrypt
                 };
+
+                // Додаємо note_id тільки для оновлення
+                if (noteId) {
+                    requestData.note_id = noteId;
+                }
 
                 // Додаємо вкладення тільки якщо вони є
                 if (attachments.length > 0) {
@@ -1623,41 +1629,87 @@
             document.getElementById('note-encrypt').checked = note.is_encrypted || false;
             document.getElementById('save-note').textContent = 'Update';
             
+            // Reset previous attachments
+            resetRecording();
+            resetFileUpload();
+            
             // Handle note type specific content
-            if (note.note_type === 'voice' && note.attachment) {
+            if (note.attachment) {
                 try {
-                    const attachment = typeof note.attachment === 'string' ? JSON.parse(note.attachment) : note.attachment;
-                    if (attachment.type === 'audio') {
-                        document.getElementById('audio-preview').src = `data:audio/wav;base64,${attachment.data}`;
-                        document.getElementById('audio-preview').style.display = 'block';
-                        document.getElementById('play-btn').disabled = false;
+                    const attachment = typeof note.attachment === 'string' 
+                        ? JSON.parse(note.attachment) 
+                        : note.attachment;
+                    
+                    if (Array.isArray(attachment)) {
+                        // Обробка масиву вкладень
+                        if (note.note_type === 'voice' && attachment[0]?.type === 'audio') {
+                            document.getElementById('audio-preview').src = 
+                                `data:audio/wav;base64,${attachment[0].data}`;
+                            document.getElementById('audio-preview').style.display = 'block';
+                            document.getElementById('play-btn').disabled = false;
+                        } else if (note.note_type === 'image') {
+                            // Для файлових записок показуємо перше вкладення
+                            const fileContainer = document.getElementById('file-preview-container');
+                            fileContainer.innerHTML = '';
+                            
+                            attachment.forEach((att, index) => {
+                                const previewElement = document.createElement('div');
+                                previewElement.className = 'file-preview-item';
+                                
+                                if (att.type === 'image') {
+                                    const img = document.createElement('img');
+                                    img.src = `data:image/*;base64,${att.data}`;
+                                    img.style.maxWidth = '100px';
+                                    img.style.maxHeight = '100px';
+                                    previewElement.appendChild(img);
+                                } else {
+                                    const icon = document.createElement('i');
+                                    icon.className = 'fas fa-file';
+                                    previewElement.appendChild(icon);
+                                }
+                                
+                                const fileName = document.createElement('span');
+                                fileName.textContent = att.name;
+                                previewElement.appendChild(fileName);
+                                
+                                fileContainer.appendChild(previewElement);
+                            });
+                        }
+                    } else if (attachment.type) {
+                        // Обробка одиночного вкладення
+                        if (note.note_type === 'voice' && attachment.type === 'audio') {
+                            document.getElementById('audio-preview').src = 
+                                `data:audio/wav;base64,${attachment.data}`;
+                            document.getElementById('audio-preview').style.display = 'block';
+                            document.getElementById('play-btn').disabled = false;
+                        } else if (note.note_type === 'image') {
+                            const fileContainer = document.getElementById('file-preview-container');
+                            fileContainer.innerHTML = '';
+                            
+                            const previewElement = document.createElement('div');
+                            previewElement.className = 'file-preview-item';
+                            
+                            if (attachment.type === 'image') {
+                                const img = document.createElement('img');
+                                img.src = `data:image/*;base64,${attachment.data}`;
+                                img.style.maxWidth = '100px';
+                                img.style.maxHeight = '100px';
+                                previewElement.appendChild(img);
+                            } else {
+                                const icon = document.createElement('i');
+                                icon.className = 'fas fa-file';
+                                previewElement.appendChild(icon);
+                            }
+                            
+                            const fileName = document.createElement('span');
+                            fileName.textContent = attachment.name;
+                            previewElement.appendChild(fileName);
+                            
+                            fileContainer.appendChild(previewElement);
+                        }
                     }
                 } catch (e) {
-                    console.error('Error parsing voice attachment:', e);
-                }
-            } else if (note.note_type === 'image') {
-                // Показуємо поточний файл (якщо він є)
-                if (note.attachment) {
-                    try {
-                        const attachment = typeof note.attachment === 'string' 
-                            ? JSON.parse(note.attachment) 
-                            : note.attachment;
-                        
-                        if (attachment.type === 'image') {
-                            document.getElementById('image-preview').src = 
-                                `data:image/*;base64,${attachment.data}`;
-                            document.getElementById('image-preview').style.display = 'block';
-                        } else {
-                            document.getElementById('file-download').href = 
-                                `data:application/octet-stream;base64,${attachment.data}`;
-                            document.getElementById('file-download').download = attachment.name;
-                            document.getElementById('file-download').textContent = 
-                                `Download ${attachment.name}`;
-                            document.getElementById('file-download').style.display = 'block';
-                        }
-                    } catch (e) {
-                        console.error('Error parsing attachment:', e);
-                    }
+                    console.error('Error parsing attachment:', e);
                 }
             }
             
@@ -1721,24 +1773,12 @@
 
         function displayNotes(notes) {
             notesContainer.innerHTML = '';
-            notes.forEach(note => {
-                const noteCard = document.createElement('div');
-                noteCard.className = 'note-card';
-                noteCard.innerHTML = `
-                    <!-- ... ваш HTML ... -->
-                    <button class="edit-btn" data-id="${note._id}">
-                        <i class="fas fa-edit"></i> Edit
-                    </button>
-                    <!-- ... -->
-                `;
-                notesContainer.appendChild(noteCard);
-            });
+            
             if (!notes || !Array.isArray(notes)) {
                 notesContainer.innerHTML = '<p>Error loading notes. Please try again.</p>';
                 return;
             }
 
-            // Filter out notes without user_id (anonymous notes)
             const userNotes = currentUser ? notes.filter(note => note.user_id === currentUser.id) : [];
             
             if (userNotes.length === 0) {
@@ -1748,46 +1788,76 @@
                 return;
             }
 
-            notesContainer.innerHTML = '';
-            
             userNotes.forEach(note => {
                 const noteCard = document.createElement('div');
                 noteCard.className = 'note-card';
+                noteCard.setAttribute('data-id', note._id);
                 
                 const createdDate = note.time_creation ? new Date(note.time_creation).toLocaleString() : 'Unknown date';
+                const updatedDate = note.time_update ? new Date(note.time_update).toLocaleString() : createdDate;
                 
                 let content = note.content || '';
                 let attachmentHtml = '';
                 
+                // Обробка вкладень
                 if (note.attachment) {
                     try {
                         const attachment = typeof note.attachment === 'string' 
                             ? JSON.parse(note.attachment) 
                             : note.attachment;
                         
-                        if (attachment.type === 'audio') {
-                            attachmentHtml = `
-                                <div class="note-attachment">
-                                    <audio controls src="data:audio/wav;base64,${attachment.data}" style="width: 100%"></audio>
-                                </div>
-                            `;
-                        } else if (attachment.type === 'image') {
-                            attachmentHtml = `
-                                <div class="note-attachment">
-                                    <img src="data:image/*;base64,${attachment.data}" style="max-width: 100%; max-height: 200px;">
-                                </div>
-                            `;
-                        } else if (attachment.type === 'file') {
-                            attachmentHtml = `
-                                <div class="note-attachment">
-                                    <a href="data:application/octet-stream;base64,${attachment.data}" download="${attachment.name}">
-                                        <i class="fas fa-file-download"></i> Download ${attachment.name}
-                                    </a>
-                                </div>
-                            `;
+                        if (Array.isArray(attachment)) {
+                            // Обробка масиву вкладень
+                            attachmentHtml = attachment.map(att => {
+                                if (att.type === 'audio') {
+                                    return `
+                                        <div class="note-attachment">
+                                            <audio controls src="data:audio/wav;base64,${att.data}" style="width: 100%"></audio>
+                                        </div>
+                                    `;
+                                } else if (att.type === 'image') {
+                                    return `
+                                        <div class="note-attachment">
+                                            <img src="data:image/*;base64,${att.data}" style="max-width: 100%; max-height: 200px;">
+                                        </div>
+                                    `;
+                                } else {
+                                    return `
+                                        <div class="note-attachment">
+                                            <a href="data:application/octet-stream;base64,${att.data}" download="${att.name}">
+                                                <i class="fas fa-file-download"></i> Download ${att.name}
+                                            </a>
+                                        </div>
+                                    `;
+                                }
+                            }).join('');
+                        } else if (attachment.type) {
+                            // Обробка одиночного вкладення
+                            if (attachment.type === 'audio') {
+                                attachmentHtml = `
+                                    <div class="note-attachment">
+                                        <audio controls src="data:audio/wav;base64,${attachment.data}" style="width: 100%"></audio>
+                                    </div>
+                                `;
+                            } else if (attachment.type === 'image') {
+                                attachmentHtml = `
+                                    <div class="note-attachment">
+                                        <img src="data:image/*;base64,${attachment.data}" style="max-width: 100%; max-height: 200px;">
+                                    </div>
+                                `;
+                            } else {
+                                attachmentHtml = `
+                                    <div class="note-attachment">
+                                        <a href="data:application/octet-stream;base64,${attachment.data}" download="${attachment.name}">
+                                            <i class="fas fa-file-download"></i> Download ${attachment.name}
+                                        </a>
+                                    </div>
+                                `;
+                            }
                         }
                     } catch (e) {
                         console.error('Error parsing attachment:', e);
+                        attachmentHtml = '<div class="note-attachment">Attachment error</div>';
                     }
                 }
                 
@@ -1801,7 +1871,7 @@
                     <div class="note-content">${content}</div>
                     ${attachmentHtml}
                     <div class="note-footer">
-                        <div>Created: ${createdDate}</div>
+                        <div>Updated: ${updatedDate}</div>
                         <div class="note-actions">
                             <button class="edit-btn" data-id="${note._id}">
                                 <i class="fas fa-edit"></i> Edit
@@ -1816,7 +1886,7 @@
                 notesContainer.appendChild(noteCard);
             });
 
-            // Add event listeners
+            // Додаємо обробники подій для кнопок редагування та видалення
             document.querySelectorAll('.edit-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const noteId = btn.getAttribute('data-id');
