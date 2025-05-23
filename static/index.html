@@ -461,8 +461,6 @@
             from { transform: translateX(100%); }
             to { transform: translateX(0); }
         }
-
-        /* Profile modal */
         .profile-content {
             display: flex;
             flex-direction: column;
@@ -799,14 +797,12 @@
     </div>
 
     <script>
-        // WebSocket connection
         const WS_HOST = '127.0.0.1';
         const WS_PORT = 8765;
         let socket = null;
         let currentUser = null;
         let clientId = generateClientId();
 
-        // Voice recording variables
         let mediaRecorder;
         let audioChunks = [];
         let recordingStartTime;
@@ -814,7 +810,6 @@
         let currentAudioBlob = null;
         let currentFile = null;
 
-        // DOM elements
         const authButtons = document.getElementById('auth-buttons');
         const userInfo = document.getElementById('user-info');
         const userAvatar = document.getElementById('user-avatar');
@@ -827,7 +822,6 @@
         const searchInput = document.getElementById('search-input');
         const notesContainer = document.getElementById('notes-container');
 
-        // Modals
         const loginModal = document.getElementById('login-modal');
         const registerModal = document.getElementById('register-modal');
         const noteModal = document.getElementById('note-modal');
@@ -841,12 +835,10 @@
         const cancelNote = document.getElementById('cancel-note');
         const closeProfile = document.getElementById('close-profile');
 
-        // Forms
         const loginForm = document.getElementById('login-form');
         const registerForm = document.getElementById('register-form');
         const noteForm = document.getElementById('note-form');
 
-        // Initialize the app
         init();
 
         function init() {
@@ -870,7 +862,6 @@
         }
 
         function setupEventListeners() {
-            // Auth buttons
             loginBtn.addEventListener('click', () => showModal(loginModal));
             registerBtn.addEventListener('click', () => showModal(registerModal));
             logoutBtn.addEventListener('click', logout);
@@ -882,15 +873,12 @@
                 radio.addEventListener('change', handleNoteTypeChange);
             });
 
-            // Create note button
             createNoteBtn.addEventListener('click', () => {
                 showCreateNoteModal();
             });
 
-            // Search input
             searchInput.addEventListener('input', debounce(searchNotes, 300));
 
-            // Modal close buttons
             closeLoginModal.addEventListener('click', () => hideModal(loginModal));
             closeRegisterModal.addEventListener('click', () => hideModal(registerModal));
             closeNoteModal.addEventListener('click', () => hideModal(noteModal));
@@ -898,33 +886,25 @@
             cancelRegister.addEventListener('click', () => hideModal(registerModal));
             cancelNote.addEventListener('click', () => hideModal(noteModal));
 
-            // Form submissions
             loginForm.addEventListener('submit', handleLogin);
             registerForm.addEventListener('submit', handleRegister);
             
 
-            // Note type change
             document.querySelectorAll('input[name="note-type"]').forEach(radio => {
                 radio.addEventListener('change', handleNoteTypeChange);
             });
-
-            // Voice recording buttons
             document.getElementById('record-btn').addEventListener('click', startRecording);
             document.getElementById('stop-btn').addEventListener('click', stopRecording);
             document.getElementById('play-btn').addEventListener('click', playRecording);
 
-            // File upload
             document.getElementById('file-input').addEventListener('change', handleFileUpload);
 
-            // Delete all notes
             document.getElementById('delete-all-notes').addEventListener('click', deleteAllNotes);
 
-            // Додаткові обробники для форми нотатки
             noteForm.addEventListener('submit', async (e) => {
                 await handleNoteSubmit(e);
             });
 
-            // Перевірка стану форми перед відправкою
             noteForm.addEventListener('input', () => {
                 const title = document.getElementById('note-title').value;
                 const noteType = document.querySelector('input[name="note-type"]:checked').value;
@@ -933,11 +913,10 @@
                 let isValid = title.trim() !== '';
                 
                 if (noteType === 'image') {
-                    // Для файлової записки достатньо заголовка і хоча б одного файлу
                     isValid = isValid && fileInput.files.length > 0;
                 } else if (noteType === 'voice') {
                     isValid = isValid && currentAudioBlob !== null;
-                } else { // Текстова записка
+                } else {
                     isValid = isValid && document.getElementById('note-content').value.trim() !== '';
                 }
                 
@@ -948,13 +927,11 @@
         function handleNoteTypeChange() {
             const noteType = document.querySelector('input[name="note-type"]:checked').value;
             
-            // Показуємо/ховаємо відповідні секції
             document.getElementById('voice-recording-container').style.display = 
                 noteType === 'voice' ? 'block' : 'none';
             document.getElementById('file-upload-container').style.display = 
                 noteType === 'image' ? 'block' : 'none';
             
-            // Очищаємо поля при зміні типу
             if (noteType !== 'voice') {
                 resetRecording();
             }
@@ -1039,13 +1016,12 @@
             document.getElementById('recording-timer').textContent = '00:00';
         }
 
-        let currentFiles = []; // Масив для зберігання файлів
+        let currentFiles = []; 
 
         function handleFileUpload(event) {
             const files = event.target.files;
             const previewContainer = document.getElementById('file-preview-container');
             
-            // Перевірка наявності контейнера
             if (!previewContainer) {
                 console.error('File preview container not found');
                 return;
@@ -1057,7 +1033,6 @@
                 return;
             }
 
-            // Додаємо прев'ю для кожного файлу
             Array.from(files).forEach((file, index) => {
                 const previewElement = document.createElement('div');
                 previewElement.className = 'file-preview-item';
@@ -1100,12 +1075,10 @@
             const files = Array.from(fileInput.files);
             files.splice(index, 1);
             
-            // Оновлюємо список файлів
             const newFileList = new DataTransfer();
             files.forEach(file => newFileList.items.add(file));
             fileInput.files = newFileList.files;
             
-            // Оновлюємо прев'ю
             handleFileUpload({ target: fileInput });
         }
 
@@ -1240,10 +1213,8 @@
             };
 
             try {
-                // Відправляємо запит
                 socket.send(JSON.stringify(request));
                 
-                // Чекаємо на відповідь (без таймауту)
                 return await new Promise((resolve) => {
                     const handler = (event) => {
                         try {
@@ -1342,7 +1313,6 @@
                 let finalContent = content;
                 let attachments = [];
 
-                // Обробка за типом нотатки
                 switch(noteType) {
                     case 'voice':
                         if (currentAudioBlob) {
@@ -1371,7 +1341,6 @@
                         break;
                 }
 
-                // Готуємо дані для відправки
                 const requestData = {
                     user_id: currentUser.id,
                     title: title,
@@ -1380,17 +1349,14 @@
                     encrypt: encrypt
                 };
 
-                // Додаємо note_id тільки для оновлення
                 if (noteId) {
                     requestData.note_id = noteId;
                 }
 
-                // Додаємо вкладення тільки якщо вони є
                 if (attachments.length > 0) {
                     requestData.attachments = JSON.stringify(attachments);
                 }
 
-                // Відправляємо запит
                 const response = await sendRequest(
                     noteId ? 'update_note' : 'create_note',
                     requestData
@@ -1432,7 +1398,6 @@
             if (data.action === 'update_note' && data.status === 'success') {
                 showAlert('Note updated successfully!', 'success');
                 
-                // Оновлюємо конкретну нотатку в інтерфейсі
                 const noteElement = document.querySelector(`.note-card[data-id="${data.note._id}"]`);
                 if (noteElement) {
                     noteElement.querySelector('.note-title').textContent = data.note.title;
@@ -1441,7 +1406,6 @@
                         `Updated: ${new Date(data.note.time_update).toLocaleString()}`;
                 }
                 
-                // Або просто перезавантажуємо всі нотатки
                 loadNotes();
             }
 
@@ -1607,16 +1571,12 @@
             document.getElementById('note-encrypt').checked = false;
             document.getElementById('save-note').textContent = 'Create';
             
-            // Reset voice recording
             resetRecording();
             
-            // Reset file upload
             resetFileUpload();
             
-            // Show the modal
             showModal(noteModal);
             
-            // Trigger note type change to hide/show appropriate sections
             handleNoteTypeChange();
         }
 
@@ -1629,11 +1589,9 @@
             document.getElementById('note-encrypt').checked = note.is_encrypted || false;
             document.getElementById('save-note').textContent = 'Update';
             
-            // Reset previous attachments
             resetRecording();
             resetFileUpload();
             
-            // Handle note type specific content
             if (note.attachment) {
                 try {
                     const attachment = typeof note.attachment === 'string' 
@@ -1641,14 +1599,12 @@
                         : note.attachment;
                     
                     if (Array.isArray(attachment)) {
-                        // Обробка масиву вкладень
                         if (note.note_type === 'voice' && attachment[0]?.type === 'audio') {
                             document.getElementById('audio-preview').src = 
                                 `data:audio/wav;base64,${attachment[0].data}`;
                             document.getElementById('audio-preview').style.display = 'block';
                             document.getElementById('play-btn').disabled = false;
                         } else if (note.note_type === 'image') {
-                            // Для файлових записок показуємо перше вкладення
                             const fileContainer = document.getElementById('file-preview-container');
                             fileContainer.innerHTML = '';
                             
@@ -1676,7 +1632,6 @@
                             });
                         }
                     } else if (attachment.type) {
-                        // Обробка одиночного вкладення
                         if (note.note_type === 'voice' && attachment.type === 'audio') {
                             document.getElementById('audio-preview').src = 
                                 `data:audio/wav;base64,${attachment.data}`;
@@ -1713,10 +1668,8 @@
                 }
             }
             
-            // Show the modal
             showModal(noteModal);
             
-            // Trigger note type change to hide/show appropriate sections
             handleNoteTypeChange();
         }
 
@@ -1799,7 +1752,6 @@
                 let content = note.content || '';
                 let attachmentHtml = '';
                 
-                // Обробка вкладень
                 if (note.attachment) {
                     try {
                         const attachment = typeof note.attachment === 'string' 
@@ -1807,7 +1759,6 @@
                             : note.attachment;
                         
                         if (Array.isArray(attachment)) {
-                            // Обробка масиву вкладень
                             attachmentHtml = attachment.map(att => {
                                 if (att.type === 'audio') {
                                     return `
@@ -1832,7 +1783,6 @@
                                 }
                             }).join('');
                         } else if (attachment.type) {
-                            // Обробка одиночного вкладення
                             if (attachment.type === 'audio') {
                                 attachmentHtml = `
                                     <div class="note-attachment">
@@ -1886,7 +1836,6 @@
                 notesContainer.appendChild(noteCard);
             });
 
-            // Додаємо обробники подій для кнопок редагування та видалення
             document.querySelectorAll('.edit-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const noteId = btn.getAttribute('data-id');
