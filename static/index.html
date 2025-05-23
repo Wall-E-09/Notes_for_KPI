@@ -1157,6 +1157,14 @@
             }
         }
 
+        function checkConnection() {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                showAlert('Connection lost. Trying to reconnect...', 'error');
+                return false;
+            }
+            return true;
+        }
+
         function updateConnectionStatus(connected) {
             if (connected) {
                 if (currentUser) {
@@ -1193,38 +1201,31 @@
         }
 
         async function sendRequest(action, data = {}) {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                return { status: 'error', message: 'No connection to server' };
+            }
+
+            const request = {
+                action,
+                request_id: generateRequestId(),
+                ...data
+            };
+
             try {
-                if (!socket || socket.readyState !== WebSocket.OPEN) {
-                    return { status: 'error', message: 'No connection to server' };
-                }
-
-                const request = {
-                    action,
-                    request_id: generateRequestId(),
-                    ...data
-                };
-
+                // Відправляємо запит
                 socket.send(JSON.stringify(request));
                 
-                // Чекаємо відповідь (додайте таймаут, щоб уникнути зависання)
-                const response = await new Promise((resolve, reject) => {
-                    const timer = setTimeout(() => {
-                        reject(new Error('Timeout waiting for server response'));
-                    }, 5000); // 5 секунд таймаут
-                    
+                // Чекаємо на відповідь (без таймауту)
+                return await new Promise((resolve) => {
                     const handler = (event) => {
-                        clearTimeout(timer);
                         try {
                             resolve(JSON.parse(event.data));
                         } catch (e) {
-                            reject(e);
+                            resolve({ status: 'error', message: 'Invalid server response' });
                         }
                     };
-                    
                     socket.addEventListener('message', handler, { once: true });
                 });
-
-                return response;
             } catch (error) {
                 console.error('Request failed:', error);
                 return { 
@@ -1304,48 +1305,61 @@
             const content = document.getElementById('note-content').value;
             const noteType = document.querySelector('input[name="note-type"]:checked').value;
             const encrypt = document.getElementById('note-encrypt').checked;
-            const fileInput = document.getElementById('file-input');
             
-            // Показуємо завантажувач
             const saveBtn = document.getElementById('save-note');
             saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
             saveBtn.disabled = true;
 
             try {
                 let finalContent = content;
-                let attachment = null;
+                let attachments = []; // Завжди ініціалізуємо масив
 
-                // Обробка голосового запису
-                if (noteType === 'voice' && currentAudioBlob) {
-                    finalContent = "Voice recording";
-                    attachment = {
-                        type: 'audio',
-                        data: await blobToBase64(currentAudioBlob),
-                        name: 'recording.wav'
-                    };
-                }
-                // Обробка файлу
-                else if (noteType === 'image' && fileInput.files.length > 0) {
-                    const file = fileInput.files[0];
-                    finalContent = file.type.startsWith('image/') ? "Image attachment" : "File attachment";
-                    attachment = {
-                        type: file.type.startsWith('image/') ? 'image' : 'file',
-                        name: file.name,
-                        data: await fileToBase64(file)
-                    };
+                // Обробка за типом нотатки
+                switch(noteType) {
+                    case 'voice':
+                        if (currentAudioBlob) {
+                            finalContent = "Voice recording";
+                            attachments.push({
+                                type: 'audio',
+                                data: await blobToBase64(currentAudioBlob),
+                                name: 'recording.wav'
+                            });
+                        }
+                        break;
+                        
+                    case 'image':
+                        if (currentFiles.length > 0) {
+                            finalContent = `${currentFiles.length} file(s) attached`;
+                            attachments = await Promise.all(
+                                currentFiles.map(async file => ({
+                                    type: file.type.startsWith('image/') ? 'image' : 'file',
+                                    name: file.name,
+                                    data: await fileToBase64(file)
+                                }))
+                            );
+                        }
+                        break;
                 }
 
+                // Готуємо дані для відправки
+                const requestData = {
+                    user_id: currentUser.id,
+                    note_id: noteId || undefined,
+                    title: title,
+                    content: finalContent,
+                    note_type: noteType,
+                    encrypt: encrypt
+                };
+
+                // Додаємо вкладення тільки якщо вони є
+                if (attachments.length > 0) {
+                    requestData.attachments = JSON.stringify(attachments);
+                }
+
+                // Відправляємо запит
                 const response = await sendRequest(
                     noteId ? 'update_note' : 'create_note',
-                    {
-                        user_id: currentUser.id,
-                        note_id: noteId || undefined,
-                        title: title,
-                        content: finalContent,
-                        note_type: noteType,
-                        encrypt: encrypt,
-                        attachment: attachment ? JSON.stringify(attachment) : null
-                    }
+                    requestData
                 );
 
                 if (response.status === 'success') {
@@ -1362,22 +1376,7 @@
                 saveBtn.innerHTML = noteId ? 'Update' : 'Create';
                 saveBtn.disabled = false;
             }
-            
-            
-            const response = await sendRequest(
-                noteId ? 'update_note' : 'create_note',
-                {
-                    user_id: currentUser.id,
-                    note_id: noteId || undefined,
-                    title: title,
-                    content: currentFiles.length ? `${currentFiles.length} file(s) attached` : content,
-                    note_type: noteType,
-                    encrypt: encrypt,
-                    attachments: attachments.length ? JSON.stringify(attachments) : null
-                }
-            );
         }
-
 
         function blobToBase64(blob) {
             return new Promise((resolve) => {

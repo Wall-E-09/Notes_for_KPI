@@ -129,41 +129,31 @@ class NoteServer:
             }
 
     async def handle_create_note(self, data):
-        user_id = data.get('user_id')  # Can be None for anonymous notes
-        title = data.get('title')
-        content = data.get('content')
-        note_type = data.get('note_type', 'text')
-        encrypt = data.get('encrypt', False)
-        attachment = data.get('attachment')
-        
-        if encrypt:
-            content = Encryption.encrypt(content)
-        
         try:
             note_data = {
-                "user_id": user_id,
-                "title": title,
-                "content": content,
-                "note_type": note_type,
+                "user_id": data.get('user_id'),
+                "title": data.get('title'),
+                "content": data.get('content'),
+                "note_type": data.get('note_type', 'text'),
                 "time_creation": datetime.now(),
                 "time_update": datetime.now(),
-                "is_encrypted": encrypt
+                "is_encrypted": data.get('encrypt', False)
             }
-            
-            if attachment:
-                note_data["attachment"] = json.loads(attachment)
-            
+
+            if data.get('attachments'):
+                try:
+                    note_data["attachments"] = json.loads(data['attachments'])
+                except json.JSONDecodeError:
+                    note_data["attachments"] = []
+
             result = Notes.insert_one(note_data)
             return {
                 "status": "success",
-                "action": "create_note",
-                "message": "Note created successfully",
                 "note_id": str(result.inserted_id)
             }
         except Exception as e:
             return {
                 "status": "error",
-                "action": "create_note",
                 "message": str(e)
             }
 
