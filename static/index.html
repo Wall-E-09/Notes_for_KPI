@@ -1097,21 +1097,46 @@
             socket.send(JSON.stringify(message));
         }
 
-        function sendRequest(action, data = {}) {
-            if (!socket || socket.readyState !== WebSocket.OPEN) {
-                showAlert('No connection to server', 'error');
-                return false;
+        async function sendRequest(action, data = {}) {
+            try {
+                if (!socket || socket.readyState !== WebSocket.OPEN) {
+                    return { status: 'error', message: 'No connection to server' };
+                }
+
+                const request = {
+                    action,
+                    request_id: generateRequestId(),
+                    ...data
+                };
+
+                socket.send(JSON.stringify(request));
+                
+                // Чекаємо відповідь (додайте таймаут, щоб уникнути зависання)
+                const response = await new Promise((resolve, reject) => {
+                    const timer = setTimeout(() => {
+                        reject(new Error('Timeout waiting for server response'));
+                    }, 5000); // 5 секунд таймаут
+                    
+                    const handler = (event) => {
+                        clearTimeout(timer);
+                        try {
+                            resolve(JSON.parse(event.data));
+                        } catch (e) {
+                            reject(e);
+                        }
+                    };
+                    
+                    socket.addEventListener('message', handler, { once: true });
+                });
+
+                return response;
+            } catch (error) {
+                console.error('Request failed:', error);
+                return { 
+                    status: 'error', 
+                    message: error.message || 'Request failed' 
+                };
             }
-
-            const request = {
-                action,
-                request_id: generateRequestId(),
-                ...data
-            };
-
-            console.log('Sending request:', request);
-            socket.send(JSON.stringify(request));
-            return true;
         }
         async function updateNote(noteId, newTitle, newContent) {
             try {
@@ -1185,53 +1210,42 @@
             const noteType = document.querySelector('input[name="note-type"]:checked').value;
             const encrypt = document.getElementById('note-encrypt').checked;
 
-            let finalContent = content;
-            let attachment = null;
+            // Показуємо завантажувач
+            const saveBtn = document.getElementById('save-note');
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            saveBtn.disabled = true;
 
-            // Обробка голосового запису
-            if (noteType === 'voice' && currentAudioBlob) {
-                finalContent = "Voice recording";
-                attachment = {
-                    type: 'audio',
-                    data: await blobToBase64(currentAudioBlob),
-                    name: 'recording.wav'
-                };
-            }
-            // Обробка файлу (зображення або іншого файлу)
-            else if (noteType === 'image' && currentFile) {
-                finalContent = currentFile.type.startsWith('image/') ? "Image attachment" : "File attachment";
-                attachment = {
-                    type: currentFile.type.startsWith('image/') ? 'image' : 'file',
-                    name: currentFile.name,
-                    data: await fileToBase64(currentFile)
-                };
-            }
-
-            // Відправка на сервер
             try {
                 const response = await sendRequest(
                     noteId ? 'update_note' : 'create_note',
                     {
                         user_id: currentUser.id,
                         note_id: noteId || undefined,
-                        title,
-                        content: finalContent,
+                        title: title,
+                        content: content,
                         note_type: noteType,
-                        encrypt,
-                        attachment: attachment ? JSON.stringify(attachment) : null
+                        encrypt: encrypt
                     }
                 );
 
-                if (response.status === 'success') {
+                // Правильна перевірка успішності
+                if (response && response.status === 'success') {
                     showAlert(noteId ? 'Note updated!' : 'Note created!', 'success');
-                    } else {
-                    showAlert(response.message || 'Error saving note', 'error');
+                    hideModal(noteModal);
+                    loadNotes();
+                } else {
+                    // Якщо response є, але статус не 'success'
+                    const errorMsg = response?.message || 'Unknown error occurred';
+                    showAlert(errorMsg, 'error');
+                    saveBtn.innerHTML = noteId ? 'Update' : 'Create';
+                    saveBtn.disabled = false;
                 }
             } catch (error) {
-                showAlert('Error saving note: ' + error.message, 'error');
-            } finally {
-                hideModal(noteModal);
-                loadNotes();
+                // Тільки для справжніх помилок (наприклад, проблеми з мережею)
+                console.error('Error:', error);
+                showAlert('Network error. Please try again.', 'error');
+                saveBtn.innerHTML = noteId ? 'Update' : 'Create';
+                saveBtn.disabled = false;
             }
         }
 
