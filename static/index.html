@@ -917,8 +917,7 @@
                 
                 document.getElementById('save-note').disabled = !isValid;
             });
-
-        }
+            }
 
         function handleNoteTypeChange() {
             const noteType = document.querySelector('input[name="note-type"]:checked').value;
@@ -955,6 +954,9 @@
                     document.getElementById('audio-preview').style.display = 'block';
                     document.getElementById('play-btn').disabled = false;
                     document.getElementById('recording-status').textContent = 'Recording saved';
+
+                    noteForm.dispatchEvent(new Event('input'));
+
                 };
                 
                 mediaRecorder.start();
