@@ -40,8 +40,8 @@ class Model:
     
     @classmethod
     def update_one(cls, query, update_data):
-        return cls.get_collection().update_one(query, {'$set': update_data})
-    
+        return cls.get_collection().update_one(query, update_data)
+        
     @classmethod
     def delete_one(cls, query):
         return cls.get_collection().delete_one(query)

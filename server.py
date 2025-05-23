@@ -209,47 +209,41 @@ class NoteServer:
     async def handle_update_note(self, data):
         user_id = data.get('user_id')
         note_id = data.get('note_id')
-        update_data = data.get('update_data', {})
+        title = data.get('title')  # Додаємо отримання окремих полів
+        content = data.get('content')
         
         if not ObjectId.is_valid(note_id):
-            return {
-                "status": "error",
-                "action": "update_note",
-                "message": "Invalid note ID"
-            }
-        
-        if 'content' in update_data and update_data.get('encrypt', False):
-            update_data['content'] = Encryption.encrypt(update_data['content'])
-            update_data['is_encrypted'] = True
-        
-        if 'attachment' in update_data:
-            update_data['attachment'] = json.loads(update_data['attachment'])
-        
-        update_data['time_update'] = datetime.now()
-        
+            return {"status": "error", "message": "Invalid note ID"}
+
+        update_data = {
+            "title": title,
+            "content": content,
+            "time_update": datetime.now()
+        }
+
         try:
             result = Notes.update_one(
                 {"_id": ObjectId(note_id), "user_id": user_id},
                 {"$set": update_data}
             )
-            if result.modified_count == 0:
-                return {
-                    "status": "error",
-                    "action": "update_note",
-                    "message": "Note not found or not updated"
-                }
             
+            if result.modified_count == 0:
+                return {"status": "error", "message": "Note not found or not updated"}
+            
+            # Повертаємо оновлену нотатку
+            updated_note = Notes.find_one({"_id": ObjectId(note_id)})
             return {
                 "status": "success",
-                "action": "update_note",
-                "message": "Note updated successfully"
+                "note": {
+                    "_id": str(updated_note['_id']),
+                    "title": updated_note['title'],
+                    "content": updated_note['content'],
+                    "time_update": updated_note['time_update'].isoformat()
+                }
             }
         except Exception as e:
-            return {
-                "status": "error",
-                "action": "update_note",
-                "message": str(e)
-            }
+            print(f"Update error: {e}")
+            return {"status": "error", "message": str(e)}
 
     async def handle_delete_note(self, data):
         user_id = data.get('user_id')

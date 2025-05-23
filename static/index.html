@@ -1113,6 +1113,25 @@
             socket.send(JSON.stringify(request));
             return true;
         }
+        async function updateNote(noteId, newTitle, newContent) {
+            try {
+                const response = await sendRequest('update_note', {
+                    user_id: currentUser.id,
+                    note_id: noteId,
+                    update_data: {
+                        title: newTitle,
+                        content: newContent,
+                        time_update: new Date().toISOString()
+                    }
+                });
+                console.log('Update response:', response);
+                return response;
+            } catch (error) {
+                console.error('Error updating note:', error);
+                return {status: 'error', message: error.message};
+            }
+        }
+        
 
         function handleLogin(e) {
             e.preventDefault();
@@ -1155,10 +1174,8 @@
         async function handleNoteSubmit(e) {
             e.preventDefault();
             
-            // Перевірка наявності користувача
             if (!currentUser) {
                 showAlert('You need to login first', 'error');
-                resetButtons();
                 return;
             }
 
@@ -1171,15 +1188,17 @@
             let finalContent = content;
             let attachment = null;
 
+            // Обробка голосового запису
             if (noteType === 'voice' && currentAudioBlob) {
-                // Convert voice recording to base64
                 finalContent = "Voice recording";
                 attachment = {
                     type: 'audio',
-                    data: await blobToBase64(currentAudioBlob)
+                    data: await blobToBase64(currentAudioBlob),
+                    name: 'recording.wav'
                 };
-            } else if (noteType === 'image' && currentFile) {
-                // Convert file to base64
+            }
+            // Обробка файлу (зображення або іншого файлу)
+            else if (noteType === 'image' && currentFile) {
                 finalContent = currentFile.type.startsWith('image/') ? "Image attachment" : "File attachment";
                 attachment = {
                     type: currentFile.type.startsWith('image/') ? 'image' : 'file',
@@ -1188,38 +1207,34 @@
                 };
             }
 
-            const submitBtn = noteForm.querySelector('button[type="submit"]');
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-            submitBtn.disabled = true;
-
+            // Відправка на сервер
             try {
-                if (noteId) {
-                    await sendRequest('update_note', {
+                const response = await sendRequest(
+                    noteId ? 'update_note' : 'create_note',
+                    {
                         user_id: currentUser.id,
-                        note_id: noteId,
-                        update_data: {
-                            title,
-                            content: finalContent,
-                            note_type: noteType,
-                            encrypt,
-                            attachment: attachment ? JSON.stringify(attachment) : null
-                        }
-                    });
-                } else {
-                    await sendRequest('create_note', {
-                        user_id: currentUser.id,
+                        note_id: noteId || undefined,
                         title,
                         content: finalContent,
                         note_type: noteType,
                         encrypt,
                         attachment: attachment ? JSON.stringify(attachment) : null
-                    });
+                    }
+                );
+
+                if (response.status === 'success') {
+                    showAlert(noteId ? 'Note updated!' : 'Note created!', 'success');
+                    } else {
+                    showAlert(response.message || 'Error saving note', 'error');
                 }
             } catch (error) {
                 showAlert('Error saving note: ' + error.message, 'error');
-                resetButtons();
+            } finally {
+                hideModal(noteModal);
+                loadNotes();
             }
         }
+
 
         function blobToBase64(blob) {
             return new Promise((resolve) => {
@@ -1238,9 +1253,20 @@
         }
 
         function handleWebSocketMessage(data) {
-            if (!data || !data.status) {
-                console.log('Unknown message type:', data);
-                return;
+            if (data.action === 'update_note' && data.status === 'success') {
+                showAlert('Note updated successfully!', 'success');
+                
+                // Оновлюємо конкретну нотатку в інтерфейсі
+                const noteElement = document.querySelector(`.note-card[data-id="${data.note._id}"]`);
+                if (noteElement) {
+                    noteElement.querySelector('.note-title').textContent = data.note.title;
+                    noteElement.querySelector('.note-content').textContent = data.note.content;
+                    noteElement.querySelector('.note-footer div').textContent = 
+                        `Updated: ${new Date(data.note.time_update).toLocaleString()}`;
+                }
+                
+                // Або просто перезавантажуємо всі нотатки
+                loadNotes();
             }
 
             switch (data.status) {
@@ -1520,6 +1546,19 @@
         }
 
         function displayNotes(notes) {
+            notesContainer.innerHTML = '';
+            notes.forEach(note => {
+                const noteCard = document.createElement('div');
+                noteCard.className = 'note-card';
+                noteCard.innerHTML = `
+                    <!-- ... ваш HTML ... -->
+                    <button class="edit-btn" data-id="${note._id}">
+                        <i class="fas fa-edit"></i> Edit
+                    </button>
+                    <!-- ... -->
+                `;
+                notesContainer.appendChild(noteCard);
+            });
             if (!notes || !Array.isArray(notes)) {
                 notesContainer.innerHTML = '<p>Error loading notes. Please try again.</p>';
                 return;
@@ -1605,7 +1644,7 @@
 
             // Add event listeners
             document.querySelectorAll('.edit-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
+                btn.addEventListener('click', (e) => {
                     const noteId = btn.getAttribute('data-id');
                     const note = notes.find(n => n._id === noteId);
                     if (note) showEditNoteModal(note);
