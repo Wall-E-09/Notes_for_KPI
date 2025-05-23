@@ -190,6 +190,43 @@
             align-items: center;
         }
 
+        .file-preview-container {
+            margin-top: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .file-preview-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            margin-bottom: 5px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+
+        .file-preview-item img {
+            max-width: 50px;
+            max-height: 50px;
+            margin-right: 10px;
+        }
+
+        .file-preview-item span {
+            flex-grow: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .remove-file-btn {
+            background: none;
+            border: none;
+            color: #ff4444;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 0 5px;
+        }
+
         .modal-content {
             background-color: white;
             padding: 20px;
@@ -687,11 +724,12 @@
                 <div class="form-group" id="file-upload-container" style="display: none;">
                     <label>File Attachment</label>
                     <div class="file-upload">
-                        <input type="file" id="file-input" class="form-control">
+                        <input type="file" id="file-input" class="form-control" multiple>
                     </div>
                     <div class="file-preview-container">
                         <img id="image-preview" class="file-preview">
                         <a id="file-download" class="file-preview" style="display: none;">Download File</a>
+                        <div id="file-preview-container" class="file-preview-container"></div>
                     </div>
                 </div>
                 
@@ -814,6 +852,10 @@
             closeProfileModal.addEventListener('click', () => hideModal(profileModal));
             closeProfile.addEventListener('click', () => hideModal(profileModal));
 
+            document.querySelectorAll('input[name="note-type"]').forEach(radio => {
+                radio.addEventListener('change', handleNoteTypeChange);
+            });
+
             // Create note button
             createNoteBtn.addEventListener('click', () => {
                 showCreateNoteModal();
@@ -859,29 +901,35 @@
             // Перевірка стану форми перед відправкою
             noteForm.addEventListener('input', () => {
                 const title = document.getElementById('note-title').value;
-                const content = document.getElementById('note-content').value;
                 const noteType = document.querySelector('input[name="note-type"]:checked').value;
+                const fileInput = document.getElementById('file-input');
                 
-                let isValid = title.trim() !== '' && content.trim() !== '';
+                let isValid = title.trim() !== '';
                 
-                if (noteType === 'voice') {
+                if (noteType === 'image') {
+                    // Для файлової записки достатньо заголовка і хоча б одного файлу
+                    isValid = isValid && fileInput.files.length > 0;
+                } else if (noteType === 'voice') {
                     isValid = isValid && currentAudioBlob !== null;
-                } else if (noteType === 'image') {
-                    isValid = isValid && currentFile !== null;
+                } else { // Текстова записка
+                    isValid = isValid && document.getElementById('note-content').value.trim() !== '';
                 }
                 
                 document.getElementById('save-note').disabled = !isValid;
             });
+
         }
 
         function handleNoteTypeChange() {
             const noteType = document.querySelector('input[name="note-type"]:checked').value;
-            const voiceContainer = document.getElementById('voice-recording-container');
-            const fileContainer = document.getElementById('file-upload-container');
             
-            voiceContainer.style.display = noteType === 'voice' ? 'block' : 'none';
-            fileContainer.style.display = noteType === 'image' ? 'block' : 'none';
+            // Показуємо/ховаємо відповідні секції
+            document.getElementById('voice-recording-container').style.display = 
+                noteType === 'voice' ? 'block' : 'none';
+            document.getElementById('file-upload-container').style.display = 
+                noteType === 'image' ? 'block' : 'none';
             
+            // Очищаємо поля при зміні типу
             if (noteType !== 'voice') {
                 resetRecording();
             }
@@ -963,30 +1011,77 @@
             document.getElementById('recording-timer').textContent = '00:00';
         }
 
+        let currentFiles = []; // Масив для зберігання файлів
+
         function handleFileUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
+            const files = event.target.files;
+            const previewContainer = document.getElementById('file-preview-container');
             
-            currentFile = file;
-            const preview = document.getElementById('image-preview');
-            const downloadLink = document.getElementById('file-download');
-            
-            if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    preview.src = e.target.result;
-                    preview.style.display = 'block';
-                    downloadLink.style.display = 'none';
-                };
-                reader.readAsDataURL(file);
-            } else {
-                preview.style.display = 'none';
-                downloadLink.href = URL.createObjectURL(file);
-                downloadLink.download = file.name;
-                downloadLink.textContent = `Download ${file.name}`;
-                downloadLink.style.display = 'block';
+            // Перевірка наявності контейнера
+            if (!previewContainer) {
+                console.error('File preview container not found');
+                return;
             }
+
+            previewContainer.innerHTML = '';
+            
+            if (files.length === 0) {
+                return;
+            }
+
+            // Додаємо прев'ю для кожного файлу
+            Array.from(files).forEach((file, index) => {
+                const previewElement = document.createElement('div');
+                previewElement.className = 'file-preview-item';
+                
+                if (file.type.startsWith('image/')) {
+                    const img = document.createElement('img');
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        img.src = e.target.result;
+                        img.style.maxWidth = '100px';
+                        img.style.maxHeight = '100px';
+                    };
+                    reader.readAsDataURL(file);
+                    previewElement.appendChild(img);
+                } else {
+                    const icon = document.createElement('i');
+                    icon.className = 'fas fa-file';
+                    previewElement.appendChild(icon);
+                }
+                
+                const fileName = document.createElement('span');
+                fileName.textContent = file.name;
+                previewElement.appendChild(fileName);
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.innerHTML = '&times;';
+                removeBtn.className = 'remove-file-btn';
+                removeBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    removeFile(index);
+                };
+                previewElement.appendChild(removeBtn);
+                
+                previewContainer.appendChild(previewElement);
+            });
         }
+
+        function removeFile(index) {
+            const fileInput = document.getElementById('file-input');
+            const files = Array.from(fileInput.files);
+            files.splice(index, 1);
+            
+            // Оновлюємо список файлів
+            const newFileList = new DataTransfer();
+            files.forEach(file => newFileList.items.add(file));
+            fileInput.files = newFileList.files;
+            
+            // Оновлюємо прев'ю
+            handleFileUpload({ target: fileInput });
+        }
+
+
 
         function resetFileUpload() {
             document.getElementById('file-input').value = '';
@@ -1209,44 +1304,78 @@
             const content = document.getElementById('note-content').value;
             const noteType = document.querySelector('input[name="note-type"]:checked').value;
             const encrypt = document.getElementById('note-encrypt').checked;
-
+            const fileInput = document.getElementById('file-input');
+            
             // Показуємо завантажувач
             const saveBtn = document.getElementById('save-note');
             saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
             saveBtn.disabled = true;
 
             try {
+                let finalContent = content;
+                let attachment = null;
+
+                // Обробка голосового запису
+                if (noteType === 'voice' && currentAudioBlob) {
+                    finalContent = "Voice recording";
+                    attachment = {
+                        type: 'audio',
+                        data: await blobToBase64(currentAudioBlob),
+                        name: 'recording.wav'
+                    };
+                }
+                // Обробка файлу
+                else if (noteType === 'image' && fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
+                    finalContent = file.type.startsWith('image/') ? "Image attachment" : "File attachment";
+                    attachment = {
+                        type: file.type.startsWith('image/') ? 'image' : 'file',
+                        name: file.name,
+                        data: await fileToBase64(file)
+                    };
+                }
+
                 const response = await sendRequest(
                     noteId ? 'update_note' : 'create_note',
                     {
                         user_id: currentUser.id,
                         note_id: noteId || undefined,
                         title: title,
-                        content: content,
+                        content: finalContent,
                         note_type: noteType,
-                        encrypt: encrypt
+                        encrypt: encrypt,
+                        attachment: attachment ? JSON.stringify(attachment) : null
                     }
                 );
 
-                // Правильна перевірка успішності
-                if (response && response.status === 'success') {
+                if (response.status === 'success') {
                     showAlert(noteId ? 'Note updated!' : 'Note created!', 'success');
                     hideModal(noteModal);
                     loadNotes();
                 } else {
-                    // Якщо response є, але статус не 'success'
-                    const errorMsg = response?.message || 'Unknown error occurred';
-                    showAlert(errorMsg, 'error');
-                    saveBtn.innerHTML = noteId ? 'Update' : 'Create';
-                    saveBtn.disabled = false;
+                    showAlert(response.message || 'Error saving note', 'error');
                 }
             } catch (error) {
-                // Тільки для справжніх помилок (наприклад, проблеми з мережею)
                 console.error('Error:', error);
-                showAlert('Network error. Please try again.', 'error');
+                showAlert('Error saving note: ' + error.message, 'error');
+            } finally {
                 saveBtn.innerHTML = noteId ? 'Update' : 'Create';
                 saveBtn.disabled = false;
             }
+            
+            
+            const response = await sendRequest(
+                noteId ? 'update_note' : 'create_note',
+                {
+                    user_id: currentUser.id,
+                    note_id: noteId || undefined,
+                    title: title,
+                    content: currentFiles.length ? `${currentFiles.length} file(s) attached` : content,
+                    note_type: noteType,
+                    encrypt: encrypt,
+                    attachments: attachments.length ? JSON.stringify(attachments) : null
+                }
+            );
         }
 
 
@@ -1479,25 +1608,29 @@
                 } catch (e) {
                     console.error('Error parsing voice attachment:', e);
                 }
-            } else if (note.note_type === 'image' && note.attachment) {
-                try {
-                    const attachment = typeof note.attachment === 'string' ? JSON.parse(note.attachment) : note.attachment;
-                    const preview = document.getElementById('image-preview');
-                    const downloadLink = document.getElementById('file-download');
-                    
-                    if (attachment.type === 'image') {
-                        preview.src = `data:image/*;base64,${attachment.data}`;
-                        preview.style.display = 'block';
-                        downloadLink.style.display = 'none';
-                    } else {
-                        downloadLink.href = `data:application/octet-stream;base64,${attachment.data}`;
-                        downloadLink.download = attachment.name;
-                        downloadLink.textContent = `Download ${attachment.name}`;
-                        downloadLink.style.display = 'block';
-                        preview.style.display = 'none';
+            } else if (note.note_type === 'image') {
+                // Показуємо поточний файл (якщо він є)
+                if (note.attachment) {
+                    try {
+                        const attachment = typeof note.attachment === 'string' 
+                            ? JSON.parse(note.attachment) 
+                            : note.attachment;
+                        
+                        if (attachment.type === 'image') {
+                            document.getElementById('image-preview').src = 
+                                `data:image/*;base64,${attachment.data}`;
+                            document.getElementById('image-preview').style.display = 'block';
+                        } else {
+                            document.getElementById('file-download').href = 
+                                `data:application/octet-stream;base64,${attachment.data}`;
+                            document.getElementById('file-download').download = attachment.name;
+                            document.getElementById('file-download').textContent = 
+                                `Download ${attachment.name}`;
+                            document.getElementById('file-download').style.display = 'block';
+                        }
+                    } catch (e) {
+                        console.error('Error parsing attachment:', e);
                     }
-                } catch (e) {
-                    console.error('Error parsing file attachment:', e);
                 }
             }
             

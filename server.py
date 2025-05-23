@@ -216,10 +216,19 @@ class NoteServer:
             return {"status": "error", "message": "Invalid note ID"}
 
         update_data = {
-            "title": title,
-            "content": content,
+            "title": data.get('title'),
+            "content": data.get('content'),
+            "note_type": data.get('note_type'),  # Додаємо оновлення типу
             "time_update": datetime.now()
         }
+        if data.get('note_type') == 'image' and data.get('attachment'):
+            try:
+                update_data['attachment'] = json.loads(data.get('attachment'))
+            except:
+                pass
+        # Якщо змінюємо на текстовий тип - видаляємо вкладення
+        elif data.get('note_type') == 'text':
+            update_data['attachment'] = None
 
         try:
             result = Notes.update_one(
