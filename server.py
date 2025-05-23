@@ -142,7 +142,7 @@ class NoteServer:
 
             if data.get('attachments'):
                 try:
-                    note_data["attachments"] = json.loads(data['attachments'])
+                    note_data["attachment"] = json.loads(data['attachments'])
                 except json.JSONDecodeError:
                     note_data["attachments"] = []
 
