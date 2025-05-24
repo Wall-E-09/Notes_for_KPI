@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes App</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <div class="logo">Notes App</div>
+            <div id="auth-buttons" class="auth-buttons">
+                <button class="login-btn" id="login-btn">Login</button>
+                <button class="register-btn" id="register-btn">Register</button>
+            </div>
+            <div id="user-info" class="user-info" style="display: none;">
+                <div class="user-avatar" id="user-avatar">U</div>
+                <div class="user-name" id="user-name">User</div>
+                <button class="profile-btn" id="profile-btn">
+                    <i class="fas fa-user"></i> Profile
+                </button>
+                <button class="logout-btn" id="logout-btn">Logout</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="main-content">
+            <div class="sidebar">
+                <div class="search-box">
+                    <input type="text" class="search-input" id="search-input" placeholder="Search notes...">
+                </div>
+                <button class="create-note-btn" id="create-note-btn">
+                    <i class="fas fa-plus"></i> Create Note
+                </button>
+                <div id="notes-filter">
+                    <!-- Filter options can be added here -->
+                </div>
+            </div>
+            <div class="notes-list">
+                <div id="notes-container">
+                    <!-- Notes will be loaded here -->
+                    <div class="loading">
+                        <div class="spinner"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div class="modal" id="login-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Login</div>
+                <button class="close-btn" id="close-login-modal">&times;</button>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-email">Email</label>
+                    <input type="email" class="form-control" id="login-email" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" class="form-control" id="login-password" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancel-login">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Login</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div class="modal" id="register-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Register</div>
+                <button class="close-btn" id="close-register-modal">&times;</button>
+            </div>
+            <form id="register-form">
+                <div class="form-group">
+                    <label for="register-username">Username</label>
+                    <input type="text" class="form-control" id="register-username" required>
+                </div>
+                <div class="form-group">
+                    <label for="register-email">Email</label>
+                    <input type="email" class="form-control" id="register-email" required>
+                </div>
+                <div class="form-group">
+                    <label for="register-password">Password</label>
+                    <input type="password" class="form-control" id="register-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="register-confirm-password">Confirm Password</label>
+                    <input type="password" class="form-control" id="register-confirm-password" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancel-register">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Register</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Note Modal -->
+    <div class="modal" id="note-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="note-modal-title">Create Note</div>
+                <button class="close-btn" id="close-note-modal">&times;</button>
+            </div>
+            <form id="note-form">
+                <input type="hidden" id="note-id">
+                <div class="form-group">
+                    <label for="note-title">Title</label>
+                    <input type="text" class="form-control" id="note-title" required>
+                </div>
+                <div class="form-group">
+                    <label for="note-content">Content</label>
+                    <textarea class="form-control" id="note-content" rows="5" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Note Type</label>
+                    <div class="radio-group">
+                        <label class="radio-option">
+                            <input type="radio" name="note-type" value="text" checked> Text
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="note-type" value="voice"> Voice
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="note-type" value="image"> File
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="radio-option">
+                        <input type="checkbox" id="note-encrypt"> Encrypt note
+                    </label>
+                </div>
+                
+                <!-- Voice recording container -->
+                <div class="form-group" id="voice-recording-container" style="display: none;">
+                    <label>Voice Recording</label>
+                    <div class="recording-controls">
+                        <button type="button" class="record-btn" id="record-btn">
+                            <i class="fas fa-microphone"></i> Record
+                        </button>
+                        <button type="button" class="stop-btn" id="stop-btn" disabled>
+                            <i class="fas fa-stop"></i> Stop
+                        </button>
+                        <button type="button" class="play-btn" id="play-btn" disabled>
+                            <i class="fas fa-play"></i> Play
+                        </button>
+                        <span class="recording-status" id="recording-status"></span>
+                        <span class="recording-timer" id="recording-timer">00:00</span>
+                    </div>
+                    <audio class="audio-preview" id="audio-preview" controls></audio>
+                </div>
+                
+                <!-- File upload container -->
+                <div class="form-group" id="file-upload-container" style="display: none;">
+                    <label>File Attachment</label>
+                    <div class="file-upload">
+                        <input type="file" id="file-input" class="form-control" multiple>
+                    </div>
+                    <div class="file-preview-container">
+                        <img id="image-preview" class="file-preview">
+                        <a id="file-download" class="file-preview" style="display: none;">Download File</a>
+                        <div id="file-preview-container" class="file-preview-container"></div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancel-note">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="save-note">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div class="modal" id="profile-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">User Profile</div>
+                <button class="close-btn" id="close-profile-modal">&times;</button>
+            </div>
+            <div class="profile-content">
+                <div class="profile-avatar" id="profile-avatar">U</div>
+                <div class="profile-info">
+                    <div class="profile-field">
+                        <label>Username:</label>
+                        <span id="profile-username">username</span>
+                    </div>
+                    <div class="profile-field">
+                        <label>Email:</label>
+                        <span id="profile-email">email@example.com</span>
+                    </div>
+                    <div class="profile-field">
+                        <label>Registered:</label>
+                        <span id="profile-registered">Unknown date</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger" id="delete-all-notes">Delete All Notes</button>
+                <button type="button" class="btn btn-secondary" id="close-profile">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
