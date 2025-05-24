@@ -11,7 +11,6 @@ let recordingTimer;
 let currentAudioBlob = null;
 let currentFile = null;
 
-// DOM Elements
 const authButtons = document.getElementById('auth-buttons');
 const userInfo = document.getElementById('user-info');
 const userAvatar = document.getElementById('user-avatar');
@@ -24,30 +23,25 @@ const createNoteBtn = document.getElementById('create-note-btn');
 const searchInput = document.getElementById('search-input');
 const notesContainer = document.getElementById('notes-container');
 
-// Modals
 const loginModal = document.getElementById('login-modal');
 const registerModal = document.getElementById('register-modal');
 const noteModal = document.getElementById('note-modal');
 const profileModal = document.getElementById('profile-modal');
 
-// Close buttons
 const closeLoginModal = document.getElementById('close-login-modal');
 const closeRegisterModal = document.getElementById('close-register-modal');
 const closeNoteModal = document.getElementById('close-note-modal');
 const closeProfileModal = document.getElementById('close-profile-modal');
 
-// Cancel buttons
 const cancelLogin = document.getElementById('cancel-login');
 const cancelRegister = document.getElementById('cancel-register');
 const cancelNote = document.getElementById('cancel-note');
 const closeProfile = document.getElementById('close-profile');
 
-// Forms
 const loginForm = document.getElementById('login-form');
 const registerForm = document.getElementById('register-form');
 const noteForm = document.getElementById('note-form');
 
-// Initialize the application
 init();
 
 function init() {
@@ -71,7 +65,6 @@ function checkSavedUser() {
 }
 
 function setupEventListeners() {
-    // Auth buttons
     loginBtn.addEventListener('click', () => showModal(loginModal));
     registerBtn.addEventListener('click', () => showModal(registerModal));
     logoutBtn.addEventListener('click', logout);
@@ -79,20 +72,16 @@ function setupEventListeners() {
     closeProfileModal.addEventListener('click', () => hideModal(profileModal));
     closeProfile.addEventListener('click', () => hideModal(profileModal));
 
-    // Note type radio buttons
     document.querySelectorAll('input[name="note-type"]').forEach(radio => {
         radio.addEventListener('change', handleNoteTypeChange);
     });
 
-    // Create note button
     createNoteBtn.addEventListener('click', () => {
         showCreateNoteModal();
     });
 
-    // Search input
     searchInput.addEventListener('input', debounce(searchNotes, 300));
 
-    // Modal close buttons
     closeLoginModal.addEventListener('click', () => hideModal(loginModal));
     closeRegisterModal.addEventListener('click', () => hideModal(registerModal));
     closeNoteModal.addEventListener('click', () => hideModal(noteModal));
@@ -100,25 +89,20 @@ function setupEventListeners() {
     cancelRegister.addEventListener('click', () => hideModal(registerModal));
     cancelNote.addEventListener('click', () => hideModal(noteModal));
 
-    // Form submissions
     loginForm.addEventListener('submit', handleLogin);
     registerForm.addEventListener('submit', handleRegister);
     noteForm.addEventListener('submit', async (e) => {
         await handleNoteSubmit(e);
     });
 
-    // Voice recording controls
     document.getElementById('record-btn').addEventListener('click', startRecording);
     document.getElementById('stop-btn').addEventListener('click', stopRecording);
     document.getElementById('play-btn').addEventListener('click', playRecording);
 
-    // File upload
     document.getElementById('file-input').addEventListener('change', handleFileUpload);
 
-    // Delete all notes
     document.getElementById('delete-all-notes').addEventListener('click', deleteAllNotes);
 
-    // Form validation
     noteForm.addEventListener('input', () => {
         const title = document.getElementById('note-title').value;
         const noteType = document.querySelector('input[name="note-type"]:checked').value;
