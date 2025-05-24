@@ -1,6 +1,7 @@
 from models import Users, Notes, Settings, Attachments, Admin
 from bson import ObjectId
 
+
 class Database:
     def __init__(self):
         self.create_indexes()
