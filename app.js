@@ -10,6 +10,7 @@ let recordingStartTime;
 let recordingTimer;
 let currentAudioBlob = null;
 let currentFile = null;
+let currentNote = null
 
 const authButtons = document.getElementById('auth-buttons');
 const userInfo = document.getElementById('user-info');
@@ -103,25 +104,29 @@ function setupEventListeners() {
 
     document.getElementById('delete-all-notes').addEventListener('click', deleteAllNotes);
 
+    // Form validation
     noteForm.addEventListener('input', () => {
-        const title = document.getElementById('note-title').value;
-        const noteType = document.querySelector('input[name="note-type"]:checked').value;
-        const fileInput = document.getElementById('file-input');
-        
-        let isValid = title.trim() !== '';
-        
-        if (noteType === 'image') {
-            isValid = isValid && fileInput.files.length > 0;
-        } else if (noteType === 'voice') {
-            isValid = isValid && currentAudioBlob !== null;
-        } else {
-            isValid = isValid && document.getElementById('note-content').value.trim() !== '';
-        }
-        
-        document.getElementById('save-note').disabled = !isValid;
-    });
+    const title = document.getElementById('note-title').value;
+    const noteType = document.querySelector('input[name="note-type"]:checked').value;
+    const fileInput = document.getElementById('file-input');
+    
+    let isValid = title.trim() !== '';
+    
+    if (noteType === 'image') {
+        // Check either new files or existing attachment
+        isValid = isValid && (fileInput.files.length > 0 || 
+                 (note && note.attachment && note.note_type === 'image'));
+    } else if (noteType === 'voice') {
+        // Check either new recording or existing attachment
+        isValid = isValid && (currentAudioBlob !== null || 
+                 (note && note.attachment && note.note_type === 'voice'));
+    } else {
+        isValid = isValid && document.getElementById('note-content').value.trim() !== '';
+    }
+    
+    document.getElementById('save-note').disabled = !isValid;
+});
 }
-
 function handleNoteTypeChange() {
     const noteType = document.querySelector('input[name="note-type"]:checked').value;
     
